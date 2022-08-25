@@ -25,7 +25,7 @@ VARIABLES
     nSeq, (* to keep track of the sequence number held by the primary *)
     executed
 
-(* assume the primary is honest? *)
+(* Assumption : the primary is honest *)
 
 
 Messages ==
@@ -57,7 +57,9 @@ Init ==  \* The initial predicate.
   /\ nSeq = 0
   /\ executed = [rep \in Replicas |-> << >> ]
 
-(* actions *)
+-----------------------------------------------------------------------------
+(*                               protocol actions                           *)
+-----------------------------------------------------------------------------
 
 (* 1. prepare and pre-prepare phase *)
 
@@ -73,19 +75,14 @@ sendRequest(req) ==
     /\ cState' = "waiting"
     /\ UNCHANGED << nSeq, rState, executed >>
 
-PrePrepare(rep, req) == (* done by the primary *)
-    /\ rep = Primary
+PrePrepare(req) ==
     /\ req \in Requests
-    /\ [type |-> {"request"}, request |-> req] \in rLog[rep]
+    /\ cState = "waiting"
+    /\ [type |-> {"request"}, request |-> req] \in rLog[Primary]
     /\ \A r \in Replicas : Send([type |-> "pre-prepare", seq |-> nSeq, request |-> req], r)
     /\ nSeq' = nSeq + 1
-    /\ UNCHANGED << rState, executed >>
-
-    (* byzantine faults: define one byzantine behavior where any replica in Byzantines
-    can send any message with any content to any replica *)
-    (* we also need to model benign faults : losing msgs, as a separate func *)
+    /\ UNCHANGED << rState, executed, cState >>
     
-
 PrepareHonest(rep, req, n) == (* can be performed by a byzantine replica too *)
     /\ \A r \in Replicas : Send([type |-> "prepare", replica |-> rep, seq |-> n, request |-> req], r)
     /\ UNCHANGED << rState, cState, nSeq, executed >>
@@ -122,12 +119,7 @@ setPrepared(req, r, n) ==
     \/  /\ r \in Byzantines
         /\ UNCHANGED << rState, cState, rLog, nSeq, executed >>
 
-Invariant1 ==
-    \E i \in Replicas, req1 \in Requests, n \in SeqNums : prepared(req1, i, n)
-    => \A req2 \in Requests, j \in Replicas : 
-        req2 # req1 => ~ prepared(req2, j, n)
-
-    (* can we do this i.e. identify the request msg (and its digest) with the request label? *)
+(* 2. commit phase *)
 
 CommitHonest(req, rep, n) ==
     /\ \A r \in Replicas : Send([type |-> "commit", replica |-> rep, seq |-> n, request |-> req], r)
@@ -170,10 +162,6 @@ committed_local(req, i, n) ==
     /\ \E senders \in SUBSET(Replicas) : 
         /\ \A sender \in senders : [type |-> "commit", replica |-> sender, seq |-> n, request |-> req] \in rLog[i]  
         /\ Cardinality(senders) = 2*f + 1
-
-Invariant2 ==
-    \A req \in Requests, n \in SeqNums:
-        (\E i \in (Replicas \ Byzantines) : committed_local(req, i, n)) => committed(req, n)
 
 (* ready to execute predicate *)
 
@@ -224,6 +212,10 @@ requestAccepted(req) ==
 (*                          faulty behaviour                                *)
 -----------------------------------------------------------------------------
 
+(* byzantine faults: define one byzantine behavior where any replica in Byzantines
+    can send any message with any content to any replica *)
+(* we also need to model benign faults : losing msgs, as a separate func *)
+
 (* 1. benign faults *)
 
 LoseMsg == /\ \E r \in Replicas:
@@ -242,12 +234,12 @@ SendRandomMsg == /\ \E b \in Byzantines:
 (* also byzantine behavior is optional for a bynzatine node in the protocol elements above *)
 
 -----------------------------------------------------------------------------
-(*                          transitions                               *)
+(*                          transitions                                     *)
 -----------------------------------------------------------------------------
 
 Next == \/ \E req \in Requests : 
             \/ sendRequest(req)
-            \/ PrePrepare(Primary, req)
+            \/ PrePrepare(req)
             \/ \E rep \in Replicas, n \in SeqNums : 
                 \/ Prepare(rep, req, n)
                 \/ setPrepared(req, rep, n)
@@ -268,6 +260,15 @@ Spec == Init /\ [][Next]_vars
 THEOREM Spec => TypeOK
 
 (* invariants *)
+
+Invariant1 ==
+    \E i \in Replicas, req1 \in Requests, n \in SeqNums : prepared(req1, i, n)
+    => \A req2 \in Requests, j \in Replicas : 
+        req2 # req1 => ~ prepared(req2, j, n)
+
+Invariant2 ==
+    \A req \in Requests, n \in SeqNums:
+        (\E i \in (Replicas \ Byzantines) : committed_local(req, i, n)) => committed(req, n)
 
 (* safety *)
 
