@@ -23,6 +23,7 @@ VARIABLES
     cState,
     rLog,
     nSeq, (* to keep track of the sequence number held by the primary *)
+    reqPool,
     executed
 
 (* Assumption : the primary is honest *)
@@ -44,6 +45,7 @@ TypeOK == /\ nSeq \in Nat
           /\ rLog \in [Replicas \cup {Client} -> Messages]
           /\ rState  \in [Replicas -> [Requests -> [val  : {"prepared", "commited-local", "executed", "none"}]]]
           /\ cState \in {"waiting", "done"}
+          /\ reqPool \in SUBSET(Requests)
           /\ executed \in [Replicas -> Seq(Requests)]
 
 
@@ -55,6 +57,7 @@ Init ==  \* The initial predicate.
   /\ cState = "done"
   /\ rLog = [rep \in Replicas \cup {Client} |-> {}]
   /\ nSeq = 0
+  /\ reqPool = Requests
   /\ executed = [rep \in Replicas |-> << >> ]
 
 -----------------------------------------------------------------------------
@@ -70,22 +73,23 @@ Send(m, r) ==
 
 sendRequest(req) ==
     /\ cState = "done" 
-    /\ req \in Requests
-    /\ Send([type |-> {"request"}, request |-> req], Primary)
+    /\ req \in reqPool
+    /\ Send([type |-> "request", request |-> req], Primary)
     /\ cState' = "waiting"
+    /\ reqPool' = reqPool \ {req}
     /\ UNCHANGED << nSeq, rState, executed >>
 
-PrePrepare(req) ==
+prePrepare(req) ==
     /\ req \in Requests
     /\ cState = "waiting"
-    /\ [type |-> {"request"}, request |-> req] \in rLog[Primary]
-    /\ \A r \in Replicas : Send([type |-> "pre-prepare", seq |-> nSeq, request |-> req], r)
+    /\ [type |-> "request", request |-> req] \in rLog[Primary]
     /\ nSeq' = nSeq + 1
-    /\ UNCHANGED << rState, executed, cState >>
+    /\ \A r \in Replicas : Send([type |-> "pre-prepare", seq |-> nSeq, request |-> req], r)
+    /\ UNCHANGED << rState, executed, cState, reqPool >>
     
 PrepareHonest(rep, req, n) == (* can be performed by a byzantine replica too *)
     /\ \A r \in Replicas : Send([type |-> "prepare", replica |-> rep, seq |-> n, request |-> req], r)
-    /\ UNCHANGED << rState, cState, nSeq, executed >>
+    /\ UNCHANGED << rState, cState, nSeq, executed, reqPool >>
 
 PrepareByzantine(rep, req, n) == (* byzantine only *)
     /\ \A r \in Replicas : 
@@ -93,7 +97,7 @@ PrepareByzantine(rep, req, n) == (* byzantine only *)
                 Send([type |-> "prepare", replica |-> rep, seq |-> m, request |-> req], r)
             \/ \E req2 \in Requests \ {req}:
                 Send([type |-> "prepare", replica |-> rep, seq |-> n, request |-> req2], r)
-    /\ UNCHANGED << rState, cState, nSeq, executed >>
+    /\ UNCHANGED << rState, cState, nSeq, executed, reqPool >>
 
 Prepare(rep, req, n) ==
     /\ rep \in Replicas
@@ -117,27 +121,27 @@ setPrepared(req, r, n) ==
         /\ rState' = [rState EXCEPT ![r][req].val = "prepared"]
         /\ UNCHANGED << rLog, cState, nSeq, executed >>
     \/  /\ r \in Byzantines
-        /\ UNCHANGED << rState, cState, rLog, nSeq, executed >>
+        /\ UNCHANGED << rState, cState, rLog, nSeq, executed, reqPool >>
 
 (* 2. commit phase *)
 
 CommitHonest(req, rep, n) ==
     /\ \A r \in Replicas : Send([type |-> "commit", replica |-> rep, seq |-> n, request |-> req], r)
     /\ rState' = [rState EXCEPT ![rep][req].val = "committed-local"]
-    /\ UNCHANGED << nSeq, executed, cState >>
+    /\ UNCHANGED << nSeq, executed, cState, reqPool >>
 
 CommitByzantine(req, rep, n) ==
     \/  /\ \A r \in Replicas : 
                 \E req2 \in Requests \ {req}:
                     /\ Send([type |-> "commit", replica |-> rep, seq |-> n, request |-> req2], r)
                     /\ rState' = [rState EXCEPT ![rep][req2].val = "committed-local"]
-        /\ UNCHANGED << nSeq, executed, cState >>
+        /\ UNCHANGED << nSeq, executed, cState, reqPool >>
     \/  /\ \A r \in Replicas : 
                 \E m \in SeqNums :
                     /\ Send([type |-> "commit", replica |-> rep, seq |-> m, request |-> req], r)
                     /\ rState' = [rState EXCEPT ![rep][req].val = "committed-local"]
         /\ UNCHANGED << nSeq, executed, cState >>
-    \/ UNCHANGED << rLog, nSeq, executed, rState, cState >> (* do nothing *)
+    \/ UNCHANGED << rLog, nSeq, executed, rState, cState, reqPool >> (* do nothing *)
 
 Commit(req, rep, n) ==
     /\ prepared(req, rep, n)
@@ -183,7 +187,7 @@ executeAndNotifyHonest(req, i, n) ==
     /\ executed' = [executed EXCEPT ![i] = Append(executed, req)]
     /\ /\ rState' = [rState EXCEPT ![i][req].val = "executed"]
     /\ Send([type |-> {"reply"}, replica |-> i, request |-> req], Client)
-    /\ UNCHANGED << nSeq, cState >>
+    /\ UNCHANGED << nSeq, cState, reqPool >>
 
 executeAndNotifyByzantine(req, i, n) ==
     \/ \E req2 \in Requests \ {req} :
@@ -191,7 +195,7 @@ executeAndNotifyByzantine(req, i, n) ==
         /\ rState' = [rState EXCEPT ![i][req2].val = "executed"]
         /\ Send([type |-> {"reply"}, replica |-> i, request |-> req2], Client)
         /\ UNCHANGED << nSeq, cState >>
-    \/ UNCHANGED << rLog, nSeq, executed, rState, cState >> (* do nothing *)
+    \/ UNCHANGED << rLog, nSeq, executed, rState, cState, reqPool >> (* do nothing *)
 
 executeAndNotify(req, i, n) ==
     /\ readyToExecute(req, i, n)
@@ -206,7 +210,7 @@ requestAccepted(req) ==
         /\ Cardinality(sset) = f + 1
         /\ \A i \in sset : [type |-> {"reply"}, replica |-> i, request |-> req] \in rLog[Client]
     /\ cState' = "done"
-    /\ UNCHANGED << rLog, nSeq, executed, rState >>
+    /\ UNCHANGED << rLog, nSeq, executed, rState, reqPool >>
 
 -----------------------------------------------------------------------------
 (*                          faulty behaviour                                *)
@@ -218,18 +222,21 @@ requestAccepted(req) ==
 
 (* 1. benign faults *)
 
+(*
 LoseMsg == /\ \E r \in Replicas:
                 \E m \in rLog[r]: 
                     rLog' = [rLog EXCEPT ![r] = rLog[r] \ {m}]
-           /\ UNCHANGED << rState, nSeq, executed, cState  >>
+           /\ UNCHANGED << rState, nSeq, executed, cState, reqPool  >>
+*)
 
 (* 2. byzantine faults *)
 
-SendRandomMsg == /\ \E b \in Byzantines:
+(* SendRandomMsg == /\ \E b \in Byzantines:
                         \E req \in Requests, n \in SeqNums, addr \in Replicas:
                             \/ Send([type |-> "pre-prepare", replica |-> b, seq |-> n, request |-> req], addr)
                             \/ Send([type |-> "commit", replica |-> b, seq |-> n, request |-> req], addr)
-                 /\ UNCHANGED << rState, nSeq, executed, cState  >>
+                 /\ UNCHANGED << rState, nSeq, executed, cState, reqPool  >>
+*)
     
 (* also byzantine behavior is optional for a bynzatine node in the protocol elements above *)
 
@@ -239,17 +246,18 @@ SendRandomMsg == /\ \E b \in Byzantines:
 
 Next == \/ \E req \in Requests : 
             \/ sendRequest(req)
-            \/ PrePrepare(req)
+            \/ prePrepare(req)
             \/ \E rep \in Replicas, n \in SeqNums : 
                 \/ Prepare(rep, req, n)
                 \/ setPrepared(req, rep, n)
                 \/ Commit(req, rep, n)
                 \/ executeAndNotify(req, rep, n)
             \/ requestAccepted(req)
-        \/ LoseMsg
+     (* \/ LoseMsg
         \/ SendRandomMsg  
+    *)
 
-vars == << rState, cState, rLog, nSeq, executed  >>
+vars == << rState, cState, rLog, nSeq, executed, reqPool  >>
 
 Spec == Init /\ [][Next]_vars
 
@@ -258,6 +266,18 @@ Spec == Init /\ [][Next]_vars
 -----------------------------------------------------------------------------
 
 THEOREM Spec => TypeOK
+
+(* helper predicates *)
+
+isPrefixOf(seq1, seq2) ==
+    \/ /\ seq1 = << >> /\ seq2 = << >>
+    \/ \E seq3 \in Seq(Requests) : seq1 \o seq3 = seq2
+    \/ seq1 = seq2
+
+logsAgree(r1, r2) ==
+    /\ Len(executed[r1]) - Len(executed[r2]) \in {-1, 0, 1}
+    /\ \/ isPrefixOf(executed[r1], executed[r2])
+       \/ isPrefixOf(executed[r2], executed[r1])
 
 (* invariants *)
 
@@ -273,6 +293,6 @@ Invariant2 ==
 (* safety *)
 
 Consensus ==
-    cState = "done" => \A i, j \in (Replicas \ Byzantines) : executed[i] = executed[j]
+    \A r1, r2 \in (Replicas \ Byzantines) : logsAgree(r1, r2)
 
 =============================================================================
