@@ -5,8 +5,8 @@ EXTENDS Integers, Sequences, FiniteSets, Naturals
 CONSTANTS
     replicas,
     byzantines,
-    values_all,
-    values_BC,
+    values_all, (* set of possible values *)
+    values_BC, (* values decided in the BFT *)
     f
 
 ASSUME
@@ -34,14 +34,15 @@ Messages ==
     [type: {"FULL-CERTIFICATE"}, value : values_all, signed : replicas, certificate : [type : {"SUBMIT"}, value : values_all, signed : replicas]] 
 
 TypeOK == 
-    /\ values \in [replicas -> all_values \cup {"none"}]
+    /\ values \in [replicas -> all_values \cup {"none"}] (* to store each replica's value *)
     /\ confirmed \in [replicas -> {"true", "false"}]
-    /\ from \in [replicas -> SUBSET(replicas)]
+    /\ from \in [replicas -> Messages] (* to keep track of replicas that submitted the same value: i.e. submit messages for the same value *)
     /\ lightCertificate \in [replicas -> {"none"} \cup (values_all \X SUBSET(replicas))] (* light signature = (v, signatures) *)
-    /\ fullCertificate \in [replicas -> {"none"} \cup Messages]
-    /\ obtainedLightCertificates \in [replicas -> Messages]
-    /\ obtainedFullCertificates \in [replicas -> Messages] (* ? *)
-    /\ proof \in SUBSET(replicas)
+    /\ fullCertificate \in [replicas -> {"none"} \cup Messages] (* set of SUBMIT messages *)
+    /\ obtainedLightCertificates \in [replicas -> Messages] (* set of LIGHT-CERTIFICATE messages, each contained lightCertificates *)
+    /\ obtainedFullCertificates \in [replicas -> Messages] (* set of FULL-CERTIFICATE messages, each contained fullCertificates *)
+    /\ rLog \in [replicas -> Messages]
+    /\ proof \in [replicas -> SUBSET(replicas)]
     
 Init == 
     /\ values = [r \in replicas -> "none"]
@@ -51,6 +52,7 @@ Init ==
     /\ fullCertificate = [r \in replicas -> "none"]
     /\ obtainedLightCertificates = [r \in replicas -> {}]
     /\ obtainedFullCertificates = [r \in replicas -> {}]
+    /\ rLog = [r \in replicas -> {}]
     /\ proof = {}
     
 
@@ -66,6 +68,8 @@ BroadcastLC(m) ==
 BroadcastFC(m) ==
     obtainedFullCertificates' = [r \in replicas |-> obtainedFullCertificates[r] \cup {m}]
 
+ByzantineBroadcast(r) ==
+    [addr \in replicas |-> \E w \in values_all : rLog[addr] \cup {[type |-> "SUBMIT", value |-> w, signed |-> r]}] 
 
 (* the protocol transitions *)
 
@@ -74,19 +78,28 @@ submit(r, v) ==
        /\ values_BC[r] = v
        /\ Broadcast([[type |-> "SUBMIT", value |-> v, signed |-> r]])
        /\ values' = [values EXCEPT ![r] = v]
+       /\ UNCHANGED << confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, proof >>
     \/ /\ r \in byzantines (* TODO: send differnet values to different replicas *)
-       /\ \E w \in values_all : 
-            /\ Broadcast([[type |-> "SUBMIT", value |-> w, signed |-> r]])
-            /\ values' = [values EXCEPT ![r] = w]
+       /\ \/ /\ \E w \in values_all : 
+             /\ Broadcast([[type |-> "SUBMIT", value |-> w, signed |-> r]])
+             /\ values' = [values EXCEPT ![r] = w]
+          \/ /\ ByzantineBroadcast(r)
+             /\ \E w \in values_all : values' = [values EXCEPT ![r] = w]
+       /\ UNCHANGED << confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, proof >>
 
 updateCertificates(r) ==
     /\ r \in replicas
     /\ \A msg \in rLog[r]: 
-        IF \E p \in replicas : msg = [type |-> "SUBMIT", value |-> values[r], signed |-> p]
-        THEN /\ from' = [from EXCEPT ![r] = from[r] \cup {p}]
-             /\ lightCertificate' = [lightCertificate EXCEPT ![r] = <lightCertificate[r][1], lightCertificate[r][2] \cup {p}>]
-             /\ fullCertificate' = [fullCertificate EXCEPT ![r] = fullCertificate[r] \cup {msg}]
+        /\ LET submit_msgs == {m \in rLog[r] : 
+                                /\ m.type = "SUBMIT"
+                                /\ m.value = values[r]
+                              }
+          IN LET submit_replicas == {r \in replicas: (\E m \in submit_msgs : m.signed = r)}
+          IN /\ from' = [from EXCEPT ![r] = from[r] \cup submit_msgs]
+             /\ lightCertificate' = [lightCertificate EXCEPT ![r] = <lightCertificate[r][1], lightCertificate[r][2] \cup submit_replicas>]
+             /\ fullCertificate' = [fullCertificate EXCEPT ![r] = fullCertificate[r] \cup submit_msgs]
              /\ rLog' = [rLog EXCEPT ![r] = {}] (* can we just clear the log? Yes, it only stores submit msgs *)
+    /\ UNCHANGED << values, confirmed, obtainedLightCertificates, obtainedFullCertificates, proof >>
 
 confirm(r) == 
     /\ Cardinality(from[r]) \geq (Cardinality(replicas) - f)
@@ -94,6 +107,7 @@ confirm(r) ==
     /\ confirmed' = [confirmed EXCEPT ![r] = "true"]
     /\ (* trigger <ac, confirm | value[r]> *)
     /\ BroadcastLC([type |-> "LIGHT-CERTIFICATE", value |-> values[r], signed |-> r, certificate |-> lightCertificate[r]])
+    /\ UNCHANGED << values, from, lightCertificate, fullCertificate, obtainedFullCertificates, proof, rLog >>
 
 light_certificates_conflict(r, c1, c2) ==
     /\ confimed[r] = "true"
@@ -119,9 +133,11 @@ bcast_full_cerificate(r) ==
     /\ r \in replicas
     /\ \E c1, c2 \in obtainedLightCertificates[r] : light_certificates_conflict(r, c1, c2)
     /\ BroadcastFC([type |-> "FULL-CERTIFICATE", value |-> values[r], signed |-> r, certificate |-> fullCertificate[r]])
+    /\ UNCHANGED << values, confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, proof, rLog >>
 
 extract_proof(r, c1, c2) == (* symmetric difference would be ideal here*)
-    proof' = (c1.certificate \ c2.certificate) \U (c2.certificate \ c1.certificate)
+    /\ proof' = (c1.certificate \ c2.certificate) \U (c2.certificate \ c1.certificate)
+    /\ UNCHANGED << values, confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, rLog >>
     
     
 prove_culpability(r) ==
@@ -130,3 +146,7 @@ prove_culpability(r) ==
        /\ full_certificates_conflict(r, c1, c2)
        /\ extract_proof(r, c1, c2)
     
+
+(* properties *)
+
+(* accountability - safety : if there's a proof of culpability then there was faulty behvaior *)
