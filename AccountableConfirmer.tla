@@ -29,7 +29,8 @@ VARIABLES
     obtainedLightCertificates,
     obtainedFullCertificates,
     rLog, (* temporary storage for submit messages *)
-    proof (* of culpability *)
+    proof, (* of culpability *)
+    rState
 
 Messages ==
     [type : {"SUBMIT"}, value : values_all, signed : replicas]
@@ -48,6 +49,7 @@ TypeOK ==
     /\ obtainedFullCertificates \in [replicas -> Messages] (* set of FULL-CERTIFICATE messages, each contained fullCertificates *)
     /\ rLog \in [replicas -> Messages]
     /\ proof \in [replicas -> replicas]
+    /\ rState \in [replicas -> {"none", "submitted", "confirmed", "done"}]
     
 Init == 
     /\ values = [r \in replicas |-> "none"]
@@ -59,6 +61,7 @@ Init ==
     /\ obtainedFullCertificates = [r \in replicas |-> {}]
     /\ rLog = [r \in replicas |-> {}]
     /\ proof = [r \in replicas |-> {}]
+    /\ rState = [r \in replicas |-> "none"]
     
 
 Send(m, r) == 
@@ -73,29 +76,32 @@ BroadcastLC(m) ==
 BroadcastFC(m) ==
     obtainedFullCertificates' = [r \in replicas |-> obtainedFullCertificates[r] \cup {m}]
 
-ByzantineBroadcast(sender) ==
-    \E S \in SUBSET(values_all) : rLog' = [r \in replicas |-> rLog[r] \cup {[type |-> "SUBMIT", value |-> w, signed |-> sender] : w \in S}] 
+ByzantineBroadcast(sender, v) ==
+    rLog' = [r \in replicas |-> rLog[r] \cup {[type |-> "SUBMIT", value |-> w, signed |-> sender] : w \in values_all \ {v}}] 
 
 (* the protocol transitions *)
 
 submit(r, v) ==
     \/ /\ r \in replicas \ byzantines
+       /\ rState[r] = "none"
        /\ value_BC = v
        /\ Broadcast([type |-> "SUBMIT", value |-> v, signed |-> r])
        /\ values' = [values EXCEPT ![r] = v]
-       /\ UNCHANGED << confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, proof >>
+       /\ UNCHANGED << confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, proof, rState >>
     \/ /\ r \in byzantines (* TODO: send differnet values to different replicas *)
-       /\ \/ \E w \in values_all : 
+       /\ rState[r] = "none"
+       /\ (* \/ \E w \in values_all : 
                 /\ Broadcast([type |-> "SUBMIT", value |-> w, signed |-> r])
-                /\ values' = [values EXCEPT ![r] = w]
-          \/ /\ ByzantineBroadcast(r)
+                /\ values' = [values EXCEPT ![r] = w] *)
+    (* \/ *) /\ ByzantineBroadcast(r, v)
              /\ \E w \in values_all : values' = [values EXCEPT ![r] = w]
-          \/ /\ value_BC = v
+         (* \/ /\ value_BC = v
              /\ Broadcast([type |-> "SUBMIT", value |-> v, signed |-> r])
-             /\ values' = [values EXCEPT ![r] = v]
-       /\ UNCHANGED << confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, proof >>
+             /\ values' = [values EXCEPT ![r] = v] *)
+       /\ UNCHANGED << confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, proof, rState >>
 
 updateCertificates(r) ==
+    /\ rState[r] = "none"
     /\ r \in replicas
     /\ LET submit_msgs == {m \in rLog[r] : 
                             /\ m.type = "SUBMIT"
@@ -107,14 +113,17 @@ updateCertificates(r) ==
                                    ELSE [lightCertificate EXCEPT ![r] = <<lightCertificate[r][1], lightCertificate[r][2] \cup submit_replicas>>]
             /\ fullCertificate' = [fullCertificate EXCEPT ![r] = fullCertificate[r] \cup submit_msgs]
             /\ rLog' = [rLog EXCEPT ![r] = {}] (* can we just clear the log? Yes, it only stores submit msgs *)
-    /\ UNCHANGED << values, confirmed, obtainedLightCertificates, obtainedFullCertificates, proof >>
+    /\ UNCHANGED << values, confirmed, obtainedLightCertificates, obtainedFullCertificates, proof, rState >>
 
 confirm(r) == 
+    /\ confirmed[r] = "false"
+    /\ rState[r] = "none"
     /\ Cardinality(from[r]) \geq (Cardinality(replicas) - t0)
     /\ r \in replicas
     /\ confirmed' = [confirmed EXCEPT ![r] = "true"]
+    /\ rState' = [rState EXCEPT ![r] = "confirmed"]
     /\ BroadcastLC([type |-> "LIGHT-CERTIFICATE", value |-> values[r], signed |-> r, certificate |-> lightCertificate[r]])
-    /\ UNCHANGED << values, from, lightCertificate, fullCertificate, obtainedFullCertificates, proof, rLog >>
+    /\ UNCHANGED << values, from, lightCertificate, fullCertificate, obtainedFullCertificates, proof, rLog>>
 
 light_certificates_conflict(r, c1, c2) ==
     /\ confirmed[r] = "true"
@@ -138,20 +147,24 @@ full_certificates_conflict(r, c1, c2) ==
 
 bcast_full_cerificate(r) ==
     /\ r \in replicas
+    /\ rState[r] = "confirmed"
     /\ \E c1, c2 \in obtainedLightCertificates[r] : light_certificates_conflict(r, c1, c2)
     /\ BroadcastFC([type |-> "FULL-CERTIFICATE", value |-> values[r], signed |-> r, certificate |-> fullCertificate[r]])
-    /\ UNCHANGED << values, confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, proof, rLog >>
+    /\ UNCHANGED << values, confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, proof, rLog, rState >>
 
 extract_proof(r, c1, c2) == (* symmetric difference *)
     /\ proof' = [proof EXCEPT ![r] = (c1.certificate \ c2.certificate) \cup (c2.certificate \ c1.certificate)]
-    /\ UNCHANGED << values, confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, rLog >>
+    /\ UNCHANGED << values, confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, rLog, rState >>
     
     
 prove_culpability(r) ==
     /\ r \in replicas
+    /\ rState[r] = "confirmed"
     /\ \E c1, c2 \in obtainedFullCertificates[r] :
        /\ full_certificates_conflict(r, c1, c2)
        /\ extract_proof(r, c1, c2)
+    /\ rState' = [rState EXCEPT ![r] = "done"]
+    
 
 -----------------------------------------------------------------------------
 (*                          transitions                                     *)
@@ -164,7 +177,7 @@ Next == \E r \in replicas :
             \/ bcast_full_cerificate(r)
             \/ prove_culpability(r)
 
-vars == << values, confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, rLog, proof >>
+vars == << values, confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, rLog, proof, rState >>
 
 Spec == Init /\ [][Next]_vars
     
