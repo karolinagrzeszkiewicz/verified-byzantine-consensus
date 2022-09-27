@@ -10,18 +10,15 @@ CONSTANTS
     replicas,
     byzantines,
     values_all, (* set of possible values *)
-    value_BC, (* value decided in the BFT, if no. byzantines < t0 *)
     t0
 
 ASSUME
-    /\ value_BC \in values_all (* TODO: this cant be a function bc not allowed in config*)
     /\ byzantines \subseteq replicas
     /\ t0 \in Nat
-    (* /\ t0 == Cardinality(replicas) / 3 - 1 *) (* ceiling of n / 3*)
 
 
 VARIABLES
-    values,
+    values, 
     confirmed,
     from,
     lightCertificate,
@@ -44,15 +41,15 @@ TypeOK ==
     /\ confirmed \in [replicas -> {"true", "false"}]
     /\ from \in [replicas -> replicas] (* to keep track of replicas that submitted the same value: i.e. submit messages for the same value *)
     /\ lightCertificate \in [replicas -> {"none"} \cup (values_all \X SUBSET(replicas))] (* light signature = (v, signatures) *)
-    /\ fullCertificate \in [replicas -> Messages] (* set of SUBMIT messages *)
-    /\ obtainedLightCertificates \in [replicas -> Messages] (* set of LIGHT-CERTIFICATE messages, each contained lightCertificates *)
-    /\ obtainedFullCertificates \in [replicas -> Messages] (* set of FULL-CERTIFICATE messages, each contained fullCertificates *)
-    /\ rLog \in [replicas -> Messages]
-    /\ proof \in [replicas -> replicas]
+    /\ fullCertificate \in [replicas -> SUBSET(Messages)] (* set of SUBMIT messages *)
+    /\ obtainedLightCertificates \in [replicas -> SUBSET(Messages)] (* set of LIGHT-CERTIFICATE messages, each contained lightCertificates *)
+    /\ obtainedFullCertificates \in [replicas -> SUBSET(Messages)] (* set of FULL-CERTIFICATE messages, each contained fullCertificates *)
+    /\ rLog \in [replicas -> SUBSET(Messages)]
+    /\ proof \in [replicas -> SUBSET(replicas)]
     /\ rState \in [replicas -> {"none", "submitted", "confirmed", "done"}]
     
 Init == 
-    /\ values = [r \in replicas |-> "none"]
+    /\ values \in [replicas -> values_all] (* can be any value *)
     /\ confirmed = [r \in replicas |-> "false"]
     /\ from = [r \in replicas |-> {}]
     /\ lightCertificate = [r \in replicas |-> "none"]
@@ -65,7 +62,7 @@ Init ==
     
 
 Send(m, r) == 
-    rLog' = [rLog EXCEPT ![r] = rLog[r] \cup {m}] (* means the message gets delivered and inserted in the addressee's log *)
+    rLog' = [rLog EXCEPT ![r] = rLog[r] \cup {m}]
 
 Broadcast(m) ==
     rLog' = [r \in replicas |-> rLog[r] \cup {m}] 
@@ -76,79 +73,80 @@ BroadcastLC(m) ==
 BroadcastFC(m) ==
     obtainedFullCertificates' = [r \in replicas |-> obtainedFullCertificates[r] \cup {m}]
 
-ByzantineBroadcast(sender, v) ==
-    rLog' = [r \in replicas |-> rLog[r] \cup {[type |-> "SUBMIT", value |-> w, signed |-> sender] : w \in values_all \ {v}}] 
+ByzantineBroadcast(sender) ==
+    LET setOfMsgFunctions == [replicas -> {[type |-> "SUBMIT", value |-> w, signed |-> sender] : w \in values_all}]
+    IN \E f \in setOfMsgFunctions : 
+      /\ \E a, b \in replicas \ {sender}:
+        /\ a # b 
+        /\ f[a] # f[b]
+      /\ rLog' = [r \in replicas |-> rLog[r] \cup {f[r]}]
+    (* rLog' = [r \in replicas |-> rLog[r] \cup {[type |-> "SUBMIT", value |-> w, signed |-> sender] : w \in values_all}] *)
 
 (* the protocol transitions *)
 
-submit(r, v) ==
+submit(r) ==
     \/ /\ r \in replicas \ byzantines
        /\ rState[r] = "none"
-       /\ value_BC = v
-       /\ Broadcast([type |-> "SUBMIT", value |-> v, signed |-> r])
-       /\ values' = [values EXCEPT ![r] = v]
-       /\ UNCHANGED << confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, proof, rState >>
-    \/ /\ r \in byzantines (* TODO: send differnet values to different replicas *)
+       /\ Broadcast([type |-> "SUBMIT", value |-> values[r], signed |-> r])
+       /\ rState' = [rState EXCEPT ![r] = "submitted"]
+       /\ UNCHANGED << confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, proof, values >>
+    \/ /\ r \in byzantines 
        /\ rState[r] = "none"
-       /\ (* \/ \E w \in values_all : 
-                /\ Broadcast([type |-> "SUBMIT", value |-> w, signed |-> r])
-                /\ values' = [values EXCEPT ![r] = w] *)
-    (* \/ *) /\ ByzantineBroadcast(r, v)
-             /\ \E w \in values_all : values' = [values EXCEPT ![r] = w]
-         (* \/ /\ value_BC = v
-             /\ Broadcast([type |-> "SUBMIT", value |-> v, signed |-> r])
-             /\ values' = [values EXCEPT ![r] = v] *)
-       /\ UNCHANGED << confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, proof, rState >>
+       /\ ByzantineBroadcast(r)
+          (* \/ \E w \in values_all : Broadcast([type |-> "SUBMIT", value |-> w, signed |-> r]) *)
+          (* \/ /\ values[r] = v
+             /\ Broadcast([type |-> "SUBMIT", value |-> v, signed |-> r]) *)
+       /\ rState' = [rState EXCEPT ![r] = "submitted"]
+       /\ UNCHANGED << confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, proof, values >>
 
 updateCertificates(r) ==
-    /\ rState[r] = "none"
+    /\ rState[r] \in {"none", "submitted"}
     /\ r \in replicas
+    /\ rLog[r] # {}
     /\ LET submit_msgs == {m \in rLog[r] : 
                             /\ m.type = "SUBMIT"
                             /\ m.value = values[r]
+                            /\ m.signed # r
                             }
         IN LET submit_replicas == {rep \in replicas: (\E m \in submit_msgs : m.signed = rep)}
         IN  /\ from' = [from EXCEPT ![r] = from[r] \cup submit_replicas]
             /\ lightCertificate' = IF lightCertificate[r] = "none" THEN [lightCertificate EXCEPT ![r] = <<values[r], submit_replicas>>]
                                    ELSE [lightCertificate EXCEPT ![r] = <<lightCertificate[r][1], lightCertificate[r][2] \cup submit_replicas>>]
             /\ fullCertificate' = [fullCertificate EXCEPT ![r] = fullCertificate[r] \cup submit_msgs]
-            /\ rLog' = [rLog EXCEPT ![r] = {}] (* can we just clear the log? Yes, it only stores submit msgs *)
+            /\ rLog' = [rLog EXCEPT ![r] = {}]
     /\ UNCHANGED << values, confirmed, obtainedLightCertificates, obtainedFullCertificates, proof, rState >>
 
 confirm(r) == 
-    /\ confirmed[r] = "false"
-    /\ rState[r] = "none"
-    /\ Cardinality(from[r]) \geq (Cardinality(replicas) - t0)
     /\ r \in replicas
+    /\ confirmed[r] = "false"
+    /\ rState[r] = "submitted"
+    /\ Cardinality(from[r]) \geq (Cardinality(replicas) - t0)
     /\ confirmed' = [confirmed EXCEPT ![r] = "true"]
     /\ rState' = [rState EXCEPT ![r] = "confirmed"]
     /\ BroadcastLC([type |-> "LIGHT-CERTIFICATE", value |-> values[r], signed |-> r, certificate |-> lightCertificate[r]])
     /\ UNCHANGED << values, from, lightCertificate, fullCertificate, obtainedFullCertificates, proof, rLog>>
 
-light_certificates_conflict(r, c1, c2) ==
+
+light_certificates_conflict(r) ==
     /\ confirmed[r] = "true"
-    /\ c1 \in obtainedLightCertificates[r]
-    /\ c2 \in obtainedLightCertificates[r]
-    /\ \E v1 \in values_all, r1 \in replicas, lc1 \in [replicas -> {"none"} \cup (values_all \X SUBSET(replicas))] : 
-        /\ c1 = [type |-> "LIGHT-CERTIFICATE", value |-> v1, signed |-> r1, certificate |-> lc1]
-        /\ \E v2 \in values_all, r2 \in replicas, lc2 \in [replicas -> {"none"} \cup (values_all \X SUBSET(replicas))] : 
-            /\ c2 = [type |-> "LIGHT-CERTIFICATE", value |-> v2, signed |-> r2, certificate |-> lc2]
-            /\ v1 # v2
+    /\ \E val1 \in values_all, val2 \in values_all, r1 \in replicas, r2 \in replicas, lc1 \in (values_all \X SUBSET(replicas)), lc2 \in (values_all \X SUBSET(replicas)): 
+        /\ [type |-> "LIGHT-CERTIFICATE", value |-> val1, signed |-> r1, certificate |-> lc1] \in obtainedLightCertificates[r]
+        /\ [type |-> "LIGHT-CERTIFICATE", value |-> val2, signed |-> r2, certificate |-> lc2] \in obtainedLightCertificates[r]
+        /\ val1 # val2
 
 full_certificates_conflict(r, c1, c2) ==
     /\ confirmed[r] = "true"
     /\ c1 \in obtainedFullCertificates[r]
     /\ c2 \in obtainedFullCertificates[r]
-    /\ \E v1 \in values_all, r1 \in replicas, lc1 \in [replicas -> [type : {"SUBMIT"}, value : values_all, signed : replicas]] : 
+    /\ \E v1 \in values_all, r1 \in replicas, lc1 \in SUBSET([type : {"SUBMIT"}, value : values_all, signed : replicas]) : 
         /\ c1 = [type |-> "FULL-CERTIFICATE", value |-> v1, signed |-> r1, certificate |-> lc1]
-        /\ \E v2 \in values_all, r2 \in replicas, lc2 \in [type : {"SUBMIT"}, value : values_all, signed : replicas] : 
+        /\ \E v2 \in values_all, r2 \in replicas, lc2 \in SUBSET([type : {"SUBMIT"}, value : values_all, signed : replicas]) : 
             /\ c2 = [type |-> "FULL-CERTIFICATE", value |-> v2, signed |-> r2, certificate |-> lc2]
             /\ v1 # v2
 
 bcast_full_cerificate(r) ==
     /\ r \in replicas
-    /\ rState[r] = "confirmed"
-    /\ \E c1, c2 \in obtainedLightCertificates[r] : light_certificates_conflict(r, c1, c2)
+    /\ light_certificates_conflict(r)
     /\ BroadcastFC([type |-> "FULL-CERTIFICATE", value |-> values[r], signed |-> r, certificate |-> fullCertificate[r]])
     /\ UNCHANGED << values, confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, proof, rLog, rState >>
 
@@ -171,7 +169,7 @@ prove_culpability(r) ==
 -----------------------------------------------------------------------------
 
 Next == \E r \in replicas : 
-            \/ submit(r, value_BC)
+            \/ submit(r)
             \/ updateCertificates(r)
             \/ confirm(r)
             \/ bcast_full_cerificate(r)
@@ -192,10 +190,28 @@ THEOREM Spec => TypeOK
 
 (* invariants *)
 
+Debug ==
+    \A sender \in replicas : 
+        confirmed[sender] = "true"
+        => \E val1 \in values_all, rcv \in replicas, lc1 \in (values_all \X SUBSET(replicas)) : 
+            /\ [type |-> "LIGHT-CERTIFICATE", value |-> val1, signed |-> sender, certificate |-> lc1] \in obtainedLightCertificates[rcv]
+            /\ rcv # sender
+
+Debug2 ==
+    \A r1, r2 \in replicas:
+        /\ confirmed[r1] = "true"
+        /\ confirmed[r2] = "true"
+        /\ r1 # r2
+    => \E r \in replicas:
+        \E val1 \in values_all, lc1 \in (values_all \X SUBSET(replicas)) : 
+            /\ [type |-> "LIGHT-CERTIFICATE", value |-> val1, signed |-> r1, certificate |-> lc1] \in obtainedLightCertificates[r]
+            /\ \E val2 \in values_all, lc2 \in (values_all \X SUBSET(replicas)) : 
+                [type |-> "LIGHT-CERTIFICATE", value |-> val2, signed |-> r2, certificate |-> lc2] \in obtainedLightCertificates[r]
+
 (* accountability - safety : if there's a proof of culpability then there was faulty behvaior *)
 (* if an honest replica proves another replica to be guilty then the guilty replica must be byzantine *)
 
 Accountability == 
-    \E r1 \in replicas \ byzantines, r2 \in replicas : r2 \in proof[r1] => r2 \in byzantines
+    \A r1 \in replicas \ byzantines, r2 \in replicas : (r2 \in proof[r1] => r2 \in byzantines)
 
 =============================================================================
