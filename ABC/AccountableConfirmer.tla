@@ -85,28 +85,31 @@ ByzantineBroadcast(sender) ==
       /\ \E a, b \in replicas \ {sender}:
         /\ a # b 
         /\ f[a] # f[b]
-      /\ submitted' = [submitted EXCEPT ![sender] = {f[rcv] : rcv \in replicas \ {sender}}]
+      /\ submitted' = [submitted EXCEPT ![sender] = {f[rcv].value : rcv \in replicas \ {sender}}]
       /\ rLog' = [r \in replicas |-> rLog[r] \cup {f[r]}]
-    (* rLog' = [r \in replicas |-> rLog[r] \cup {[type |-> "SUBMIT", value |-> w, signed |-> sender] : w \in values_all}] *)
 
 (* the protocol transitions *)
 
-submit(r, v) ==
+submit(r) ==
     \/ /\ r \in replicas
        /\ is_byzantine[r] = "false"
        /\ rState[r] = "none"
-       /\ Broadcast([type |-> "SUBMIT", value |-> v, signed |-> r])
-       /\ submitted' = [submitted EXCEPT ![r] = {v}]
+       /\ Broadcast([type |-> "SUBMIT", value |-> predecisions[r], signed |-> r])
+       /\ submitted' = [submitted EXCEPT ![r] = {predecisions[r]}]
        /\ rState' = [rState EXCEPT ![r] = "submitted"]
        /\ UNCHANGED << confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, proof, predecisions, is_byzantine, confirmedVal >>
-    \/ /\ is_byzantine[r] = "true"
+    \/ /\ r \in replicas
+       /\ is_byzantine[r] = "true"
        /\ rState[r] = "none"
        /\ ByzantineBroadcast(r)
-          (* \/ \E w \in values_all : Broadcast([type |-> "SUBMIT", value |-> w, signed |-> r]) *)
-          (* \/ /\ values[r] = v
-             /\ Broadcast([type |-> "SUBMIT", value |-> v, signed |-> r]) *)
        /\ rState' = [rState EXCEPT ![r] = "submitted"]
        /\ UNCHANGED << confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, proof, predecisions, is_byzantine, confirmedVal >>
+
+
+(* \/ \E w \in values_all : Broadcast([type |-> "SUBMIT", value |-> w, signed |-> r]) *)
+          (* \/ /\ values[r] = v
+             /\ Broadcast([type |-> "SUBMIT", value |-> v, signed |-> r]) *)
+
 
 updateCertificates(r) ==
     /\ rState[r] \in {"none", "submitted"}
@@ -125,14 +128,14 @@ updateCertificates(r) ==
             /\ rLog' = [rLog EXCEPT ![r] = {}]
     /\ UNCHANGED << predecisions, confirmed, obtainedLightCertificates, obtainedFullCertificates, proof, rState, is_byzantine, submitted, confirmedVal >>
 
-confirm(r, v) == 
+confirm(r) == 
     /\ r \in replicas
     /\ confirmed[r] = "false"
     /\ rState[r] = "submitted"
     /\ Cardinality(from[r]) \geq (Cardinality(replicas) - t0)
-    /\ lightCertificate[r][1] = v
+    /\ lightCertificate[r][1] = predecisions[r]
     /\ confirmed' = [confirmed EXCEPT ![r] = "true"]
-    /\ confirmedVal' = [confirmedVal EXCEPT ![r] = v]
+    /\ confirmedVal' = [confirmedVal EXCEPT ![r] = predecisions[r]]
     /\ rState' = [rState EXCEPT ![r] = "confirmed"]
     /\ BroadcastLC([type |-> "LIGHT-CERTIFICATE", value |-> predecisions[r], signed |-> r, certificate |-> lightCertificate[r]])
     /\ UNCHANGED << predecisions, from, lightCertificate, fullCertificate, obtainedFullCertificates, proof, rLog, is_byzantine, submitted >>
@@ -180,9 +183,9 @@ prove_culpability(r) ==
 -----------------------------------------------------------------------------
 
 Next == \E r \in replicas : 
-            \/ submit(r, predecisions[r])
+            \/ submit(r)
             \/ updateCertificates(r)
-            \/ confirm(r, predecisions[r])
+            \/ confirm(r)
             \/ bcast_full_cerificate(r)
             \/ prove_culpability(r)
 
@@ -205,19 +208,82 @@ and any honest replicas (including p and q) must have detected a conflict and br
 => then any honest replica having received two conflicting full certificates has enough info to prove culpability 
 of a replica included in both certificates (since it has sent two incompatible SUBMIT msgs) *)
 
-preCondCulpability ==
-    \E p \in replicas, q \in replicas, vp \in values_all, vq \in values_all:
+confirmDifferentVal(p, q) ==
+    \E vp \in values_all, vq \in values_all:
         /\ is_byzantine[p] = "false"
         /\ is_byzantine[q] = "false"
         /\ p # q
         /\ vp # vq
+        /\ confirmed[p] = "true"
+        /\ confirmed[q] = "true"
         /\ confirmedVal[p] = vp
         /\ confirmedVal[q] = vq
+
+SomeConfirmDifferentVal ==
+    \E p \in replicas, q \in replicas : confirmDifferentVal(p, q)
 
 behavedByzantine(r) ==
     \E v1 \in submitted[r], v2 \in submitted[r] : v1 # v2
 
 (* invariants *)
+
+invFromComplete ==
+    \A b \in replicas, r \in replicas :
+        (\E v \in submitted[b] : 
+            /\ is_byzantine[r] = "false" 
+            /\ predecisions[r] = v
+            /\ Cardinality(from[r]) \geq (Cardinality(replicas) - t0))
+            => b \in from[r]
+
+invFromConsistent1 ==
+    \A b \in replicas, r \in replicas :
+        b \in from[r] /\ is_byzantine[r] = "false" => predecisions[r] \in submitted[b]
+
+invFromConsistent2 ==
+    \A b \in replicas, r \in replicas :
+        b \in from[r] /\ is_byzantine[r] = "false" => predecisions[r] = predecisions[b] \/ is_byzantine[b] = "true"
+
+invConfirmDifferentValComplete ==
+    \A r1 \in replicas, r2 \in replicas :
+        (/\ is_byzantine[r1] = "false"
+        /\ is_byzantine[r2] = "false"
+        /\ predecisions[r1] # predecisions[r2]
+        /\ Cardinality(from[r1]) \geq (Cardinality(replicas) - t0)
+        /\ Cardinality(from[r2]) \geq (Cardinality(replicas) - t0))
+        => confirmDifferentVal(r1, r2)
+
+invConfirmDifferentValConsistent1 ==
+    \A r1 \in replicas, r2 \in replicas :
+        confirmDifferentVal(r1, r2)
+        => /\ Cardinality(from[r1]) \geq (Cardinality(replicas) - t0)
+           /\ Cardinality(from[r2]) \geq (Cardinality(replicas) - t0)
+           /\ predecisions[r1] # predecisions[r2]
+
+invConfirmDifferentValConsistent2 ==
+    \A r1 \in replicas, r2 \in replicas :
+        confirmDifferentVal(r1, r2)
+        => \E r \in replicas : r \in from[r1] /\ r \in from[r2] (* nonempty intersection *)
+
+invConfirmDifferentValConsistent3 ==
+    \A r1 \in replicas, r2 \in replicas :
+        confirmDifferentVal(r1, r2)
+        => \E r \in replicas : behavedByzantine(r) (* byzantine behaviour *)
+
+invConfirm ==
+    \A b \in replicas, r1 \in replicas, r2 \in replicas :
+        (\E v1 \in submitted[b], v2 \in submitted[b] : 
+            /\ is_byzantine[r1] = "false" /\ predecisions[r1] = v1
+            /\ is_byzantine[r2] = "false" /\ predecisions[r2] = v2
+            /\ v1 # v2
+            /\ rState[r1] = "confirmed"
+            /\ rState[r2] = "confirmed")
+            => confirmDifferentVal(r1, r2)
+
+invLCConflict ==
+    \A r \in replicas : confirmed[r] = "true" =>
+    (SomeConfirmDifferentVal => light_certificates_conflict(r))
+
+(* Debugging *)
 
 (* Debug ==
     \A sender \in replicas : 
@@ -237,8 +303,7 @@ Debug2 ==
             /\ \E val2 \in values_all, lc2 \in (values_all \X SUBSET(replicas)) : 
                 [type |-> "LIGHT-CERTIFICATE", value |-> val2, signed |-> r2, certificate |-> lc2] \in obtainedLightCertificates[r] *)
 
-(* accountability - safety : if there's a proof of culpability then there was faulty behvaior *)
-(* if an honest replica proves another replica to be guilty then the guilty replica must be byzantine *)
+(* Accountability *)
 
 AccountabilitySoundness ==
     \A r1 \in replicas : is_byzantine[r1] = "false"
@@ -248,7 +313,7 @@ AccountabilityCompleteness ==
     \A r1 \in replicas : is_byzantine[r1] = "false"
     => (\A r2 \in replicas :
             (/\ behavedByzantine(r2)
-            /\ preCondCulpability
+            /\ SomeConfirmDifferentVal
             /\ rState[r1] = "proved") 
             => r2 \in proof[r1])
     
