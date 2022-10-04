@@ -56,7 +56,7 @@ Init ==
     /\ predecisions \in [replicas -> values_all] (* can be any value *)
     /\ confirmed = [r \in replicas |-> "false"]
     /\ from = [r \in replicas |-> {}]
-    /\ lightCertificate = [r \in replicas |-> "none"]
+    /\ lightCertificate = [r \in replicas |-> << "none", {} >>]
     /\ fullCertificate = [r \in replicas |-> {}]
     /\ obtainedLightCertificates = [r \in replicas |-> {}]
     /\ obtainedFullCertificates = [r \in replicas |-> {}]
@@ -79,54 +79,48 @@ BroadcastLC(m) ==
 BroadcastFC(m) ==
     obtainedFullCertificates' = [r \in replicas |-> obtainedFullCertificates[r] \cup {m}]
 
-ByzantineBroadcast(sender) ==
-    LET setOfMsgFunctions == [replicas -> {[type |-> "SUBMIT", value |-> w, signed |-> sender] : w \in values_all}]
-    IN \E f \in setOfMsgFunctions : 
+(* the protocol transitions *)
+
+ByzantineBroadcastSubmit(sender) ==
+    LET setOfValFunctions == [replicas -> values_all]
+    IN \E f \in setOfValFunctions : 
       /\ \E a, b \in replicas \ {sender}:
         /\ a # b 
         /\ f[a] # f[b]
-      /\ submitted' = [submitted EXCEPT ![sender] = {f[rcv].value : rcv \in replicas \ {sender}}]
-      /\ rLog' = [r \in replicas |-> rLog[r] \cup {f[r]}]
+      /\ submitted' = [submitted EXCEPT ![sender] = {f[rcv] : rcv \in replicas \ {sender}}]
+      /\ LET reps == [p \in replicas |-> IF predecisions[p] = f[p] THEN {sender} ELSE {}]
+         IN LET msgs == [p \in replicas |-> IF predecisions[p] = f[p] THEN {[type |-> "SUBMIT", value |-> predecisions[p], signed |-> sender]} ELSE {}]
+         IN /\ from' = [p \in replicas |-> from[p] \cup reps[p]]
+            /\ lightCertificate' = [p \in replicas |-> << predecisions[p], lightCertificate[p][2] \cup reps[p]>>]
+            /\ fullCertificate' = [p \in replicas |-> fullCertificate[p] \cup msgs[p]]
 
-(* the protocol transitions *)
+BroadcastSubmit(r) ==
+    LET reps == [p \in replicas |-> IF predecisions[p] = predecisions[r] THEN {r} ELSE {}]
+    IN LET msgs == [p \in replicas |-> IF predecisions[p] = predecisions[r] THEN {[type |-> "SUBMIT", value |-> predecisions[r], signed |-> r]} ELSE {}]
+    IN /\ from' = [p \in replicas |-> from[p] \cup reps[p]]
+       /\ lightCertificate' = [p \in replicas |-> << predecisions[p], lightCertificate[p][2] \cup reps[p]>>]
+       /\ fullCertificate' = [p \in replicas |-> fullCertificate[p] \cup msgs[p]]
 
 submit(r) ==
     \/ /\ r \in replicas
        /\ is_byzantine[r] = "false"
        /\ rState[r] = "none"
-       /\ Broadcast([type |-> "SUBMIT", value |-> predecisions[r], signed |-> r])
+       /\ BroadcastSubmit(r)
        /\ submitted' = [submitted EXCEPT ![r] = {predecisions[r]}]
        /\ rState' = [rState EXCEPT ![r] = "submitted"]
-       /\ UNCHANGED << confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, proof, predecisions, is_byzantine, confirmedVal >>
+       /\ UNCHANGED << confirmed, rLog, obtainedLightCertificates, obtainedFullCertificates, proof, predecisions, is_byzantine, confirmedVal >>
     \/ /\ r \in replicas
        /\ is_byzantine[r] = "true"
        /\ rState[r] = "none"
-       /\ ByzantineBroadcast(r)
+       /\ ByzantineBroadcastSubmit(r)
        /\ rState' = [rState EXCEPT ![r] = "submitted"]
-       /\ UNCHANGED << confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, proof, predecisions, is_byzantine, confirmedVal >>
+       /\ UNCHANGED << confirmed, rLog, obtainedLightCertificates, obtainedFullCertificates, proof, predecisions, is_byzantine, confirmedVal >>
 
 
 (* \/ \E w \in values_all : Broadcast([type |-> "SUBMIT", value |-> w, signed |-> r]) *)
           (* \/ /\ values[r] = v
              /\ Broadcast([type |-> "SUBMIT", value |-> v, signed |-> r]) *)
-
-
-updateCertificates(r) ==
-    /\ rState[r] \in {"none", "submitted"}
-    /\ r \in replicas
-    /\ rLog[r] # {}
-    /\ LET submit_msgs == {m \in rLog[r] : 
-                            /\ m.type = "SUBMIT"
-                            /\ m.value = predecisions[r]
-                            /\ m.signed # r
-                            }
-        IN LET submit_replicas == {rep \in replicas: (\E m \in submit_msgs : m.signed = rep)}
-        IN  /\ from' = [from EXCEPT ![r] = from[r] \cup submit_replicas]
-            /\ lightCertificate' = IF lightCertificate[r] = "none" THEN [lightCertificate EXCEPT ![r] = <<predecisions[r], submit_replicas>>]
-                                   ELSE [lightCertificate EXCEPT ![r] = <<lightCertificate[r][1], lightCertificate[r][2] \cup submit_replicas>>]
-            /\ fullCertificate' = [fullCertificate EXCEPT ![r] = fullCertificate[r] \cup submit_msgs]
-            /\ rLog' = [rLog EXCEPT ![r] = {}]
-    /\ UNCHANGED << predecisions, confirmed, obtainedLightCertificates, obtainedFullCertificates, proof, rState, is_byzantine, submitted, confirmedVal >>
+    
 
 confirm(r) == 
     /\ r \in replicas
@@ -184,7 +178,6 @@ prove_culpability(r) ==
 
 Next == \E r \in replicas : 
             \/ submit(r)
-            \/ updateCertificates(r)
             \/ confirm(r)
             \/ bcast_full_cerificate(r)
             \/ prove_culpability(r)
