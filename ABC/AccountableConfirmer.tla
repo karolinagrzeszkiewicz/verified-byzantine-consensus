@@ -19,22 +19,42 @@ VARIABLES
     fullCertificate,
     obtainedLightCertificates,
     obtainedFullCertificates,
-    rLog, (* temporary storage for submit messages *)
     proof, (* of culpability *)
     rState,
     confirmedVal,
-    submitted
+    submitted,
+    msgs
 
 values_all_opt == {"none"} \cup values_all
 
 t0 == Cardinality(replicas) \div 3 (* floor division *)
 
+(* predictates for the initial setup *)
+
+AtLeast2Honest ==
+    \E r1 \in replicas, r2 \in replicas :
+    /\ is_byzantine[r1] = "false"
+    /\ is_byzantine[r2] = "false"
+    /\ r1 # r2
+
+ConsensusPreCond ==
+    LET byzantines == {r \in replicas : is_byzantine[r] = "true"}
+    IN ~ (Cardinality(byzantines) \geq t0 + 1)
+
+Consensus ==
+    ConsensusPreCond => 
+        \A r1 \in replicas, r2 \in replicas : 
+        (/\ is_byzantine[r1] = "false"
+         /\ is_byzantine[r2] = "false")
+        => predecisions[r1] = predecisions[r2]
+    
+
 Messages ==
-    [type : {"SUBMIT"}, value : values_all, signed : replicas]
+    [type : {"SUBMIT"}, value : values_all, signed : replicas, to : replicas]
     \cup
-    [type: {"LIGHT-CERTIFICATE"}, value : values_all, signed : replicas, certificate : values_all \X SUBSET(replicas)] (* values_all not needed here ? *)
+    [type: {"LIGHT-CERTIFICATE"}, value : values_all, signed : replicas, certificate : values_all \X SUBSET(replicas), to : replicas] (* values_all not needed here ? *)
     \cup 
-    [type: {"FULL-CERTIFICATE"}, value : values_all, signed : replicas, certificate : [type : {"SUBMIT"}, value : values_all, signed : replicas]] 
+    [type: {"FULL-CERTIFICATE"}, value : values_all, signed : replicas, certificate : [type : {"SUBMIT"}, value : values_all, signed : replicas, to : replicas], to : replicas] 
 
 TypeOK == 
     /\ is_byzantine \in [replicas -> {"true", "false"}]
@@ -45,41 +65,36 @@ TypeOK ==
     /\ fullCertificate \in [replicas -> SUBSET(Messages)] (* set of SUBMIT messages *)
     /\ obtainedLightCertificates \in [replicas -> SUBSET(Messages)] (* set of LIGHT-CERTIFICATE messages, each contained lightCertificates *)
     /\ obtainedFullCertificates \in [replicas -> SUBSET(Messages)] (* set of FULL-CERTIFICATE messages, each contained fullCertificates *)
-    /\ rLog \in [replicas -> SUBSET(Messages)]
     /\ proof \in [replicas -> SUBSET(replicas)]
     /\ rState \in [replicas -> {"none", "submitted", "confirmed", "done"}]
     /\ confirmedVal \in [replicas -> values_all_opt]
     /\ submitted \in [replicas -> SUBSET(values_all)]
+    /\ msgs \in SUBSET(Messages)
     
 Init == 
     /\ is_byzantine \in [replicas -> {"true", "false"}]
+    /\ AtLeast2Honest
     /\ predecisions \in [replicas -> values_all] (* can be any value *)
+    /\ Consensus
     /\ confirmed = [r \in replicas |-> "false"]
     /\ from = [r \in replicas |-> {}]
     /\ lightCertificate = [r \in replicas |-> << "none", {} >>]
     /\ fullCertificate = [r \in replicas |-> {}]
     /\ obtainedLightCertificates = [r \in replicas |-> {}]
     /\ obtainedFullCertificates = [r \in replicas |-> {}]
-    /\ rLog = [r \in replicas |-> {}]
     /\ proof = [r \in replicas |-> {}]
     /\ rState = [r \in replicas |-> "none"]
     /\ confirmedVal = [r \in replicas |-> "none"]
     /\ submitted = [r \in replicas |-> {}]
+    /\ msgs = {}
     
 
-Send(m, r) == 
-    rLog' = [rLog EXCEPT ![r] = rLog[r] \cup {m}]
+Send(m) ==
+    msgs' = msgs \cup {m}
 
-Broadcast(m) ==
-    rLog' = [r \in replicas |-> rLog[r] \cup {m}]
-
-BroadcastLC(m) ==
-    obtainedLightCertificates' = [r \in replicas |-> obtainedLightCertificates[r] \cup {m}] 
-
-BroadcastFC(m) ==
-    obtainedFullCertificates' = [r \in replicas |-> obtainedFullCertificates[r] \cup {m}]
-
-(* the protocol transitions *)
+BroadcastSubmit(r) ==
+    LET submit_msgs == {[type |-> "SUBMIT", value |-> predecisions[r], signed |-> r, to |-> rcv] : rcv \in replicas \ {r}}
+    IN msgs' = msgs \cup submit_msgs
 
 ByzantineBroadcastSubmit(sender) ==
     LET setOfValFunctions == [replicas -> values_all]
@@ -88,38 +103,56 @@ ByzantineBroadcastSubmit(sender) ==
         /\ a # b 
         /\ f[a] # f[b]
       /\ submitted' = [submitted EXCEPT ![sender] = {f[rcv] : rcv \in replicas \ {sender}}]
-      /\ LET reps == [p \in replicas |-> IF predecisions[p] = f[p] THEN {sender} ELSE {}]
-         IN LET msgs == [p \in replicas |-> IF predecisions[p] = f[p] THEN {[type |-> "SUBMIT", value |-> predecisions[p], signed |-> sender]} ELSE {}]
-         IN /\ from' = [p \in replicas |-> from[p] \cup reps[p]]
-            /\ lightCertificate' = [p \in replicas |-> << predecisions[p], lightCertificate[p][2] \cup reps[p]>>]
-            /\ fullCertificate' = [p \in replicas |-> fullCertificate[p] \cup msgs[p]]
+      /\ msgs' = msgs \cup {[type |-> "SUBMIT", value |-> f[r], signed |-> sender, to |-> r] : r \in replicas \ {sender}}
+    
 
-BroadcastSubmit(r) ==
-    LET reps == [p \in replicas |-> IF predecisions[p] = predecisions[r] THEN {r} ELSE {}]
-    IN LET msgs == [p \in replicas |-> IF predecisions[p] = predecisions[r] THEN {[type |-> "SUBMIT", value |-> predecisions[r], signed |-> r]} ELSE {}]
-    IN /\ from' = [p \in replicas |-> from[p] \cup reps[p]]
-       /\ lightCertificate' = [p \in replicas |-> << predecisions[p], lightCertificate[p][2] \cup reps[p]>>]
-       /\ fullCertificate' = [p \in replicas |-> fullCertificate[p] \cup msgs[p]]
+BroadcastLC(r) ==
+    msgs' = msgs \cup {[type |-> "LIGHT-CERTIFICATE", value |-> predecisions[r], signed |-> r, certificate |-> lightCertificate[r], to |-> rcv] : rcv \in replicas \ {r}}
+
+(* TODO: byzantine broadcast for LC - how? *)
+    
+BroadcastFC(r) ==
+    msgs' = msgs \cup {[type |-> "FULL-CERTIFICATE", value |-> predecisions[r], signed |-> r, certificate |-> fullCertificate[r], to |-> rcv] : rcv \in replicas \ {r}}
+    
+(* TODO: byzantine broadcast for FC - does not exist? *)
+
+(* the protocol transitions *)
+
 
 submit(r) ==
-    \/ /\ r \in replicas
-       /\ is_byzantine[r] = "false"
-       /\ rState[r] = "none"
-       /\ BroadcastSubmit(r)
-       /\ submitted' = [submitted EXCEPT ![r] = {predecisions[r]}]
-       /\ rState' = [rState EXCEPT ![r] = "submitted"]
-       /\ UNCHANGED << confirmed, rLog, obtainedLightCertificates, obtainedFullCertificates, proof, predecisions, is_byzantine, confirmedVal >>
-    \/ /\ r \in replicas
-       /\ is_byzantine[r] = "true"
-       /\ rState[r] = "none"
-       /\ ByzantineBroadcastSubmit(r)
-       /\ rState' = [rState EXCEPT ![r] = "submitted"]
-       /\ UNCHANGED << confirmed, rLog, obtainedLightCertificates, obtainedFullCertificates, proof, predecisions, is_byzantine, confirmedVal >>
+    /\ r \in replicas
+    /\ rState[r] = "none"
+    /\ BroadcastSubmit(r)
+    /\ submitted' = [submitted EXCEPT ![r] = {predecisions[r]}]
+    /\ rState' = [rState EXCEPT ![r] = "submitted"]
+    /\ UNCHANGED << confirmed, obtainedLightCertificates, obtainedFullCertificates, proof, predecisions, is_byzantine, confirmedVal, from, fullCertificate, lightCertificate>>
 
+submitByzantine(r) ==
+    /\ r \in replicas
+    /\ is_byzantine[r] = "true"
+    /\ rState[r] = "none"
+    /\ ByzantineBroadcastSubmit(r)
+    /\ rState' = [rState EXCEPT ![r] = "submitted"]
+    /\ UNCHANGED << confirmed, obtainedLightCertificates, obtainedFullCertificates, proof, predecisions, is_byzantine, confirmedVal, from, fullCertificate, lightCertificate >>
+    
 
-(* \/ \E w \in values_all : Broadcast([type |-> "SUBMIT", value |-> w, signed |-> r]) *)
-          (* \/ /\ values[r] = v
-             /\ Broadcast([type |-> "SUBMIT", value |-> v, signed |-> r]) *)
+receiveSubmit(r) ==
+    /\ rState[r] \in {"none", "submitted"}
+    /\ r \in replicas
+    /\ msgs # {}
+    /\ \E m \in msgs :
+        /\ m.type = "SUBMIT"
+        /\ m.value = predecisions[r]
+        /\ m.to = r
+        /\ \E s \in replicas : 
+            /\ m.signed = s
+            /\ s # r
+            /\ from' = [from EXCEPT ![r] = from[r] \cup {s}]
+            /\ lightCertificate' = IF lightCertificate[r] = "none" THEN [lightCertificate EXCEPT ![r] = <<predecisions[r], {s} >>]
+                                   ELSE [lightCertificate EXCEPT ![r] = <<lightCertificate[r][1], lightCertificate[r][2] \cup {s} >>]
+            /\ fullCertificate' = [fullCertificate EXCEPT ![r] = fullCertificate[r] \cup {m}]
+        /\ msgs' = msgs \ {m}
+    /\ UNCHANGED << predecisions, confirmed, obtainedLightCertificates, obtainedFullCertificates, proof, rState, is_byzantine, submitted, confirmedVal >>
     
 
 confirm(r) == 
@@ -131,9 +164,16 @@ confirm(r) ==
     /\ confirmed' = [confirmed EXCEPT ![r] = "true"]
     /\ confirmedVal' = [confirmedVal EXCEPT ![r] = predecisions[r]]
     /\ rState' = [rState EXCEPT ![r] = "confirmed"]
-    /\ BroadcastLC([type |-> "LIGHT-CERTIFICATE", value |-> predecisions[r], signed |-> r, certificate |-> lightCertificate[r]])
-    /\ UNCHANGED << predecisions, from, lightCertificate, fullCertificate, obtainedFullCertificates, proof, rLog, is_byzantine, submitted >>
+    /\ BroadcastLC(r)
+    /\ UNCHANGED << predecisions, from, lightCertificate, fullCertificate, obtainedFullCertificates, proof, is_byzantine, submitted >>
 
+receiveLC(r) ==
+    /\ \E m \in msgs:
+        /\ m.type = "LIGHT-CERTIFICATE"
+        /\ m.to = r
+        /\ obtainedLightCertificates' = [obtainedLightCertificates EXCEPT ![r] = obtainedLightCertificates[r] \cup {m}]
+        /\ msgs' = msgs \ {m}
+        /\ UNCHANGED << confirmed, obtainedFullCertificates, proof, predecisions, is_byzantine, confirmedVal, rState, submitted, from, fullCertificate, lightCertificate >>
 
 light_certificates_conflict(r) ==
     /\ confirmed[r] = "true"
@@ -146,26 +186,36 @@ full_certificates_conflict(r, c1, c2) ==
     /\ confirmed[r] = "true"
     /\ c1 \in obtainedFullCertificates[r]
     /\ c2 \in obtainedFullCertificates[r]
-    /\ \E v1 \in values_all, r1 \in replicas, lc1 \in SUBSET([type : {"SUBMIT"}, value : values_all, signed : replicas]) : 
+    /\ \E v1 \in values_all, r1 \in replicas, lc1 \in SUBSET(Messages) : 
         /\ c1 = [type |-> "FULL-CERTIFICATE", value |-> v1, signed |-> r1, certificate |-> lc1]
-        /\ \E v2 \in values_all, r2 \in replicas, lc2 \in SUBSET([type : {"SUBMIT"}, value : values_all, signed : replicas]) : 
+        /\ \E v2 \in values_all, r2 \in replicas, lc2 \in SUBSET(Messages) : 
             /\ c2 = [type |-> "FULL-CERTIFICATE", value |-> v2, signed |-> r2, certificate |-> lc2]
             /\ v1 # v2
 
 bcast_full_cerificate(r) ==
     /\ r \in replicas
+    /\ rState[r] = "confirmed"
     /\ light_certificates_conflict(r)
-    /\ BroadcastFC([type |-> "FULL-CERTIFICATE", value |-> predecisions[r], signed |-> r, certificate |-> fullCertificate[r]])
-    /\ UNCHANGED << predecisions, confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, proof, rLog, rState, is_byzantine, submitted, confirmedVal >>
+    /\ BroadcastFC(r)
+    /\ rState' = [rState EXCEPT ![r] = "full-bcast"]
+    /\ UNCHANGED << predecisions, confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, proof, is_byzantine, submitted, confirmedVal >>
+
+receiveFC(r) ==
+    /\ \E m \in msgs:
+        /\ m.type = "FULL-CERTIFICATE"
+        /\ m.to = r
+        /\ obtainedFullCertificates' = [obtainedFullCertificates EXCEPT ![r] = obtainedFullCertificates[r] \cup {m}]
+        /\ msgs' = msgs \ {m}
+        /\ UNCHANGED << confirmed, obtainedFullCertificates, proof, predecisions, is_byzantine, confirmedVal, submitted, from, fullCertificate, lightCertificate >>
 
 extract_proof(r, c1, c2) == (* symmetric difference *)
     /\ proof' = [proof EXCEPT ![r] = (c1.certificate \ c2.certificate) \cup (c2.certificate \ c1.certificate)]
-    /\ UNCHANGED << predecisions, confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, rLog, rState, is_byzantine, submitted, confirmedVal >>
+    /\ UNCHANGED << predecisions, confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, msgs, rState, is_byzantine, submitted, confirmedVal >>
     
     
 prove_culpability(r) ==
     /\ r \in replicas
-    /\ rState[r] = "confirmed"
+    /\ rState[r] \in {"confirmed", "full-bcast"}
     /\ \E c1, c2 \in obtainedFullCertificates[r] :
        /\ full_certificates_conflict(r, c1, c2)
        /\ extract_proof(r, c1, c2)
@@ -178,11 +228,15 @@ prove_culpability(r) ==
 
 Next == \E r \in replicas : 
             \/ submit(r)
+            \/ submitByzantine(r)
+            \/ receiveSubmit(r)
             \/ confirm(r)
+            \/ receiveLC(r)
             \/ bcast_full_cerificate(r)
+            \/ receiveFC(r)
             \/ prove_culpability(r)
 
-vars == << predecisions, confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, rLog, proof, rState, is_byzantine, submitted, confirmedVal >>
+vars == << predecisions, confirmed, from, lightCertificate, fullCertificate, obtainedLightCertificates, obtainedFullCertificates, msgs, proof, rState, is_byzantine, submitted, confirmedVal >>
 
 Spec == Init /\ [][Next]_vars
     
@@ -215,6 +269,8 @@ confirmDifferentVal(p, q) ==
 SomeConfirmDifferentVal ==
     \E p \in replicas, q \in replicas : confirmDifferentVal(p, q)
 
+ConfirmedSameVal == ~ SomeConfirmDifferentVal
+
 behavedByzantine(r) ==
     \E v1 \in submitted[r], v2 \in submitted[r] : v1 # v2
 
@@ -225,14 +281,14 @@ invFromComplete ==
         (\E v \in submitted[b] : 
             /\ is_byzantine[r] = "false" 
             /\ predecisions[r] = v
-            /\ Cardinality(from[r]) \geq (Cardinality(replicas) - t0))
+            /\ Cardinality(from[r]) \geq (Cardinality(replicas)))
             => b \in from[r]
 
-invFromConsistent1 ==
+invFromSound1 ==
     \A b \in replicas, r \in replicas :
         b \in from[r] /\ is_byzantine[r] = "false" => predecisions[r] \in submitted[b]
 
-invFromConsistent2 ==
+invFromSound2 ==
     \A b \in replicas, r \in replicas :
         b \in from[r] /\ is_byzantine[r] = "false" => predecisions[r] = predecisions[b] \/ is_byzantine[b] = "true"
 
@@ -242,22 +298,24 @@ invConfirmDifferentValComplete ==
         /\ is_byzantine[r2] = "false"
         /\ predecisions[r1] # predecisions[r2]
         /\ Cardinality(from[r1]) \geq (Cardinality(replicas) - t0)
-        /\ Cardinality(from[r2]) \geq (Cardinality(replicas) - t0))
+        /\ Cardinality(from[r2]) \geq (Cardinality(replicas) - t0)
+        /\ confirmed[r1] = "true"
+        /\ confirmed[r2] = "true")
         => confirmDifferentVal(r1, r2)
 
-invConfirmDifferentValConsistent1 ==
+invConfirmDifferentValSound1 ==
     \A r1 \in replicas, r2 \in replicas :
         confirmDifferentVal(r1, r2)
         => /\ Cardinality(from[r1]) \geq (Cardinality(replicas) - t0)
            /\ Cardinality(from[r2]) \geq (Cardinality(replicas) - t0)
            /\ predecisions[r1] # predecisions[r2]
 
-invConfirmDifferentValConsistent2 ==
+invConfirmDifferentValSound2 ==
     \A r1 \in replicas, r2 \in replicas :
         confirmDifferentVal(r1, r2)
         => \E r \in replicas : r \in from[r1] /\ r \in from[r2] (* nonempty intersection *)
 
-invConfirmDifferentValConsistent3 ==
+invConfirmDifferentValSound3 ==
     \A r1 \in replicas, r2 \in replicas :
         confirmDifferentVal(r1, r2)
         => \E r \in replicas : behavedByzantine(r) (* byzantine behaviour *)
@@ -272,9 +330,16 @@ invConfirm ==
             /\ rState[r2] = "confirmed")
             => confirmDifferentVal(r1, r2)
 
-invLCConflict ==
-    \A r \in replicas : confirmed[r] = "true" =>
-    (SomeConfirmDifferentVal => light_certificates_conflict(r))
+invLCsConflictComplete ==
+    \A r \in replicas : 
+        (/\ confirmed[r] = "true"
+        /\ is_byzantine[r] = "false") => (SomeConfirmDifferentVal => light_certificates_conflict(r))
+
+invLCsConflictSound ==
+    \A r \in replicas :
+        light_certificates_conflict(r)
+        => SomeConfirmDifferentVal 
+
 
 (* Debugging *)
 
@@ -310,8 +375,17 @@ AccountabilityCompleteness ==
             /\ rState[r1] = "proved") 
             => r2 \in proof[r1])
     
-(* Accountability == 
-    /\ AccountabilitySoundness
-    /\ AccountabilityCompleteness *)
+(* Other properties *)
+
+(* 1. if f < t0 then there is no proof of culpability *)
+
+(* 2. if f >= t0 then ... *)
+
+(* 3. if all act honest then there is no proof of culpability 
+- or if more than x act honest then no proof of culpability *)
+
+(* TODO! *)
+
+
 
 =============================================================================
