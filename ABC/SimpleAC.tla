@@ -25,7 +25,8 @@ VARIABLES
     proof, (* of culpability *)
     msgs,
     rState,
-    submitted
+    submitted,
+    conflictingCertificates
 
 values_all_opt == {"none"} \cup values_all
 
@@ -51,7 +52,8 @@ TypeOK ==
     /\ proof \in [replicas -> SUBSET(replicas)]
     /\ rState \in [replicas -> {"none", "submitted", "confirmed", "proved"}]
     /\ msgs \in SUBSET(Messages)
-    /\ submitted \in [replicas -> SUBSET(values_all)]
+    /\ submitted \in [replicas -> [replicas -> values_all]]
+    /\ conflictingCertificates \in [replicas -> SUBSET(replicas)]
 
 -----------------------------------------------------------------------------
 (*                          transitions                                     *)
@@ -69,7 +71,7 @@ ByzantineBroadcastSubmit(sender) ==
         /\ a # b 
         /\ g[a] # g[b]
       /\ msgs' = msgs \cup {[type |-> "SUBMIT", value |-> g[r], signed |-> sender, to |-> r] : r \in others}
-      /\ submitted' = [submitted EXCEPT ![sender] = {g[r] : r \in others}]
+      /\ submitted' = [submitted EXCEPT ![sender] = [r \in others |-> g[r]]]
 
 BroadcastCertificate(r) ==
     msgs' = msgs \cup {[type |-> "CERTIFICATE", value |-> predecisions[r], signed |-> r, certificate |-> certificate[r], to |-> rcv] : rcv \in replicas}
@@ -80,8 +82,8 @@ submit(r) ==
     /\ is_byzantine[r] = "false"
     /\ BroadcastSubmit(r)
     /\ rState' = [rState EXCEPT ![r] = "submitted"]
-    /\ submitted' = [submitted EXCEPT ![r] = {predecisions[r]}]
-    /\ UNCHANGED <<  proof, predecisions, is_byzantine, confirmed, certificate, obtainedCertificates >>
+    /\ submitted' = [submitted EXCEPT ![r] = [rcv \in replicas \ {r} |-> predecisions[r]]]
+    /\ UNCHANGED <<  proof, predecisions, is_byzantine, confirmed, certificate, obtainedCertificates, conflictingCertificates >>
 
 submitByzantine(r) ==
     /\ r \in replicas
@@ -89,7 +91,7 @@ submitByzantine(r) ==
     /\ is_byzantine[r] = "true"
     /\ ByzantineBroadcastSubmit(r)
     /\ rState' = [rState EXCEPT ![r] = "submitted"]
-    /\ UNCHANGED <<  proof, predecisions, is_byzantine, confirmed, certificate, obtainedCertificates >>
+    /\ UNCHANGED <<  proof, predecisions, is_byzantine, confirmed, certificate, obtainedCertificates, conflictingCertificates >>
 
 receiveSubmit(r) ==
     /\ rState[r] \in {"none", "submitted"}
@@ -101,7 +103,7 @@ receiveSubmit(r) ==
         /\ LET s == m.signed
            IN /\ certificate' = [certificate EXCEPT ![r] = certificate[r] \cup {s}]
               /\ msgs' = msgs \ {m}
-              /\ UNCHANGED <<  proof, predecisions, is_byzantine, rState, confirmed, obtainedCertificates, submitted >>
+              /\ UNCHANGED <<  proof, predecisions, is_byzantine, rState, confirmed, obtainedCertificates, submitted, conflictingCertificates >>
 
 confirm(r) == 
     /\ r \in replicas
@@ -111,7 +113,7 @@ confirm(r) ==
     /\ confirmed' = [confirmed EXCEPT ![r] = "true"]
     /\ rState' = [rState EXCEPT ![r] = "confirmed"]
     /\ BroadcastCertificate(r)
-    /\ UNCHANGED <<  proof, predecisions, is_byzantine, obtainedCertificates, certificate, submitted >>
+    /\ UNCHANGED <<  proof, predecisions, is_byzantine, obtainedCertificates, certificate, submitted, conflictingCertificates >>
 
 receiveCertificate(r) ==
     \E m \in msgs:
@@ -119,7 +121,7 @@ receiveCertificate(r) ==
         /\ m.to = r
         /\ obtainedCertificates' = [obtainedCertificates EXCEPT ![r] = obtainedCertificates[r] \cup {m}]
         /\ msgs' = msgs \ {m}
-        /\ UNCHANGED <<  proof, predecisions, is_byzantine, rState, confirmed, certificate, submitted >> 
+        /\ UNCHANGED <<  proof, predecisions, is_byzantine, rState, confirmed, certificate, submitted, conflictingCertificates >> 
 
 
 certificatesConflict(r, c1, c2) ==
@@ -137,6 +139,7 @@ proveCulpability(r) ==
     /\ \E c1, c2 \in obtainedCertificates[r] :
        /\ certificatesConflict(r, c1, c2)
        /\ extractProof(r, c1, c2)
+       /\ conflictingCertificates' = [conflictingCertificates EXCEPT ![r] = {c1.signed, c2.signed}]
     /\ rState' = [rState EXCEPT ![r] = "proved"]
     /\ UNCHANGED <<  predecisions, is_byzantine, obtainedCertificates, confirmed, certificate, msgs, submitted >>
    
@@ -172,7 +175,8 @@ Init ==
     /\ proof = [r \in replicas |-> {}]
     /\ rState = [r \in replicas |-> "none"]
     /\ msgs = {}
-    /\ submitted = [r \in replicas |-> {}]
+    /\ conflictingCertificates = [r \in replicas |-> {}]
+    /\ submitted = [r \in replicas |-> [p \in replicas |-> {}]]
     /\ Consensus
 
 Next == \E r \in replicas : 
@@ -183,7 +187,7 @@ Next == \E r \in replicas :
             \/ proveCulpability(r)
             \/ submitByzantine(r)
 
-vars == << is_byzantine, predecisions, confirmed, certificate, obtainedCertificates, proof, msgs, rState, submitted >>
+vars == << is_byzantine, predecisions, confirmed, certificate, obtainedCertificates, proof, msgs, rState, submitted, conflictingCertificates >>
 
 Spec == Init /\ [][Next]_vars
 
@@ -192,16 +196,16 @@ Spec == Init /\ [][Next]_vars
 -----------------------------------------------------------------------------
 
 behavedByzantine(r) ==
-    \E v1 \in submitted[r], v2 \in submitted[r] : v1 # v2
+    \E v1 \in {submitted[r][to] : to \in replicas \ {r}}, v2 \in {submitted[r][to] : to \in replicas \ {r}} : v1 # v2
 
 SentUnknownValues(r) ==
-    \A v \in submitted[r] : 
+    \A v \in {submitted[r][to] : to \in replicas \ {r}} : 
         ~ (\E p \in replicas :
             /\ is_byzantine[p] = "false"
             /\ predecisions[p] = v)
 
 SentUnknownValuesExceptMaxOne(r) ==
-    ~ (\E v1, v2 \in submitted[r] : 
+    ~ (\E v1, v2 \in {submitted[r][to] : to \in replicas} : 
         /\ (\E p1 \in replicas :
                 /\ is_byzantine[p1] = "false"
                 /\ predecisions[p1] = v1)
@@ -252,12 +256,20 @@ CompletenessPrecond ==
     (Cardinality(values_all) \leq 2 /\ h \leq 2)
 
 AccountabilityCompleteness ==
-    (\A r1 \in replicas : is_byzantine[r1] = "false"
-        => (\A r2 \in replicas :
-                (/\ behavedByzantine(r2)
+    (\A r1, r2 \in replicas : 
+               (/\ is_byzantine[r1] = "false"
+                /\ behavedByzantine(r2)
                 /\ \E p \in replicas, q \in replicas : confirmDifferentVal(p, q)
                 /\ rState[r1] = "proved") 
-                => r2 \in proof[r1]))
+                => r2 \in proof[r1])
+
+AccountabilityPossiblyIncomplete ==
+    (\A r1, r2 \in replicas : 
+               (/\ is_byzantine[r1] = "false"
+                /\ behavedByzantine(r2)
+                /\ \E v \in values_all : (\A r \in conflictingCertificates[r1] : submitted[r2][r] = v) (* r2 sent the same value to them *)
+                /\ rState[r1] = "proved") 
+                => ~ (r2 \in proof[r1]))
 
 (* actual accountability completeness and soundness properties *)
 
@@ -265,7 +277,7 @@ AccountabilityRestrictedCompleteness ==
     CompletenessPrecond => AccountabilityCompleteness
 
 AccountabilityIncompleteness ==
-    ~ CompletenessPrecond => ~ AccountabilityCompleteness
+    ~ CompletenessPrecond => AccountabilityPossiblyIncomplete
 
 (* soundness: if detected by an honest process then must have behaved byzantine *)
 AccountabilitySoundness ==
@@ -302,10 +314,10 @@ NonConfirmationCausedByByzantineBehaviour ==
    since there is no disagreement between certificates (and certificates are uniquely determined to be for the predecided value
    since the majority n-t0 must be for the predecided value) *)
 
-ConfirmationWithConsensus ==
-    (ConsensusPreCond /\ Consensus)
-    => (\A r \in replicas : is_byzantine[r] = "false"
-        => <>(rState[r] = "confirm"))
+\* ConfirmationWithConsensus ==
+\*     (ConsensusPreCond /\ Consensus)
+\*     => (\A r \in replicas : is_byzantine[r] = "false"
+\*         => <>(rState[r] = "confirm"))
 
 NonTerminationWithConsensus ==
     (ConsensusPreCond /\ Consensus)
