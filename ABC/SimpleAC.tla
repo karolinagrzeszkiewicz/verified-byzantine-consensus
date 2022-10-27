@@ -219,7 +219,7 @@ SentUnknownValuesExceptMaxOne(r) ==
     1. causes the protocol to never terminate if ConsensusPreCond does not hold i.e no consensus ib BFT
     2. is never detected because honest replicas ignore submit messages with values different
        from their respective predecided values*)
-behavedByzantineSentUknownValues(r) ==
+behavedByzantineSentUnknownValues(r) ==
     /\ behavedByzantine(r)
     /\ SentUnknownValues(r)
     
@@ -294,8 +294,8 @@ Accountability ==
 (* Undetected byzantine behaviour *)
     
 UndetectedByzantineBehaviour ==
-    \A r \in replicas : behavedByzantineSentUknownValues(r)
-    => \A p \in replicas \ {r} : ~ (r \in proof[p])
+    \A r \in replicas : behavedByzantineSentUnknownValues(r)
+    => \A p \in replicas \ {r} : is_byzantine[p] = "false" => ~ (r \in proof[p])
     
 (* termination and confirmation *)
 
@@ -306,7 +306,7 @@ UndetectedByzantineBehaviour ==
     so no honest confirms *)
 
 NonConfirmationCausedByByzantineBehaviour ==
-   (/\ (\A r \in replicas : is_byzantine[r] = "true" => behavedByzantineSentUknownValues(r))
+   (/\ (\A r \in replicas : is_byzantine[r] = "true" => behavedByzantineSentUnknownValues(r))
     /\ ~ ConsensusPreCond)
     => (\A p \in replicas : is_byzantine[p] = "false" => rState[p] # "confirmed")
 
