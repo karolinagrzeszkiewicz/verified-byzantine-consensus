@@ -1,4 +1,4 @@
------------------------------ MODULE simpleAC ----------------------------
+----------------------------- MODULE SimpleAC ----------------------------
 
 EXTENDS Integers, Sequences, FiniteSets, Naturals, TLC
 
