@@ -56,84 +56,128 @@ TypeOK ==
     /\ conflictingCertificates \in [replicas -> SUBSET(replicas)]
 
 -----------------------------------------------------------------------------
-(*                          transitions                                     *)
+(*                          network transitions                            *)
 -----------------------------------------------------------------------------
 
-BroadcastSubmit(r) ==
-    LET submit_msgs == {[type |-> "SUBMIT", value |-> predecisions[r], signed |-> r, to |-> rcv] : rcv \in replicas }
-    IN msgs' = msgs \cup submit_msgs
+sendSubmit(rcv, r, val) ==
+    /\ r \in replicas
+    /\ rcv \in replicas
+    /\ val \in values_all
+    /\ msgs' = msgs \cup [type |-> "SUBMIT", value |-> val, signed |-> r, to |-> rcv]
 
-ByzantineBroadcastSubmit(sender) ==
-    LET others == replicas \ {sender}
-        valuesForOthers == [others -> values_all]
-    IN \E g \in valuesForOthers : 
-      /\ \E a, b \in others:
-        /\ a # b 
-        /\ g[a] # g[b]
-      /\ msgs' = msgs \cup {[type |-> "SUBMIT", value |-> g[r], signed |-> sender, to |-> r] : r \in others}
-      /\ submitted' = [submitted EXCEPT ![sender] = [r \in others |-> g[r]]]
+broadcastSubmit(r, val) ==
+    /\ r \in replicas
+    /\ val \in values_all
+    /\ LET submit_msgs == {[type |-> "SUBMIT", value |-> val, signed |-> r, to |-> rcv] : rcv \in replicas }
+       IN msgs' = msgs \cup submit_msgs
 
-BroadcastCertificate(r) ==
-    msgs' = msgs \cup {[type |-> "CERTIFICATE", value |-> predecisions[r], signed |-> r, certificate |-> certificate[r], to |-> rcv] : rcv \in replicas}
+\* broadcastSubmitRandom(sender) ==
+\*     /\ sender \in replicas
+\*     /\  LET others == replicas \ {sender}
+\*             valuesForOthers == [others -> values_all]
+\*         IN \E g \in valuesForOthers : 
+\*             /\ msgs' = msgs \cup {[type |-> "SUBMIT", value |-> g[r], signed |-> sender, to |-> r] : r \in others}
+\*             /\ submitted' = [submitted EXCEPT ![sender] = [r \in others |-> g[r]]]
 
-submit(r) ==
+receiveSubmit(r, m) ==
+    /\ r \in replicas
+    /\ m \in msgs
+    /\ m.type = "SUBMIT"
+    /\ m.to = r
+    /\ m.value = predecisions[r]
+    /\ certificate' = [certificate EXCEPT ![r] = certificate[r] \cup {m.signed}]
+    /\ msgs' = msgs \ {m}
+    /\ UNCHANGED <<  proof, predecisions, is_byzantine, rState, confirmed, obtainedCertificates, submitted, conflictingCertificates >>
+
+sendCertificate(r, rcv, cert) ==
+    /\ r \in replicas
+    /\ msgs' = msgs \cup [type |-> "CERTIFICATE", value |-> predecisions[r], signed |-> r, certificate |-> cert, to |-> rcv]
+
+broadcastCertificate(r, cert) ==
+    /\ r \in replicas
+    /\ msgs' = msgs \cup {[type |-> "CERTIFICATE", value |-> val, signed |-> r, certificate |-> cert, to |-> rcv] : rcv \in replicas}
+
+receiveCertificate(r, m) ==
+    /\ m.type = "CERTIFICATE"
+    /\ m.to = r
+    /\ obtainedCertificates' = [obtainedCertificates EXCEPT ![r] = obtainedCertificates[r] \cup {m}]
+    /\ msgs' = msgs \ {m}
+    /\ UNCHANGED <<  proof, predecisions, is_byzantine, rState, confirmed, certificate, submitted, conflictingCertificates >> 
+
+
+networkTransition(r) ==
+    \/ \E rcv \in replicas, val \in values_all: sendSubmit(rcv, r, val)
+    \/ \E val \in values_all: broadcastSubmit(r, val)
+    \/ \E m \in Messages: receiveSubmit(r, m)
+    \/ \E rcv \in replicas: sendCertificate(r, rcv, certificate[r])
+    \/ broadcastCertificate(r, certificate[r])
+    \/ \E m \in Messages: receiveCertificate(r, m)
+
+
+-----------------------------------------------------------------------------
+(*                          state transitions                               *)
+-----------------------------------------------------------------------------
+
+changeReplicaState(r) ==
+    /\ r \in replicas
+    /\ \E newstate \in {"none", "submitted", "confirmed", "proved"}:
+       rState' = [rState EXCEPT ![r] = newstate]
+    /\ UNCHANGED <<  proof, predecisions, is_byzantine, confirmed, certificate, obtainedCertificates, conflictingCertificates, submitted >>
+
+changeConfirmed(r) ==
+    /\ r \in replicas
+    /\ \E conf \in {"true", "false"}:
+       confirmed' = [confirmed EXCEPT ![r] = conf]
+    /\ UNCHANGED <<  proof, predecisions, is_byzantine, rState, certificate, obtainedCertificates, conflictingCertificates, submitted >>
+
+stateTransition(r) ==
+    \/ changeReplicaState(r)
+    \/ changeConfirmed(r)
+
+-----------------------------------------------------------------------------
+(*                          protocol transitions                            *)
+-----------------------------------------------------------------------------
+
+
+
+pSubmit(r) ==
     /\ r \in replicas
     /\ rState[r] = "none"
-    /\ is_byzantine[r] = "false"
-    /\ BroadcastSubmit(r)
+    /\ broadcastSubmit(r, predecisions[r])
     /\ rState' = [rState EXCEPT ![r] = "submitted"]
     /\ submitted' = [submitted EXCEPT ![r] = [rcv \in replicas \ {r} |-> predecisions[r]]]
     /\ UNCHANGED <<  proof, predecisions, is_byzantine, confirmed, certificate, obtainedCertificates, conflictingCertificates >>
 
-submitByzantine(r) ==
-    /\ r \in replicas
-    /\ rState[r] = "none"
-    /\ is_byzantine[r] = "true"
-    /\ ByzantineBroadcastSubmit(r)
-    /\ rState' = [rState EXCEPT ![r] = "submitted"]
-    /\ UNCHANGED <<  proof, predecisions, is_byzantine, confirmed, certificate, obtainedCertificates, conflictingCertificates >>
-
-receiveSubmit(r) ==
+pReceiveSubmit(r) ==
     /\ rState[r] \in {"none", "submitted"}
     /\ r \in replicas
     /\ \E m \in msgs :
-        /\ m.type = "SUBMIT"
-        /\ m.to = r
-        /\ m.value = predecisions[r]
-        /\ LET s == m.signed
-           IN /\ certificate' = [certificate EXCEPT ![r] = certificate[r] \cup {s}]
-              /\ msgs' = msgs \ {m}
-              /\ UNCHANGED <<  proof, predecisions, is_byzantine, rState, confirmed, obtainedCertificates, submitted, conflictingCertificates >>
+        /\ receiveSubmit(r, m)
 
-confirm(r) == 
+pConfirm(r) == 
     /\ r \in replicas
     /\ confirmed[r] = "false"
     /\ rState[r] = "submitted"
     /\ Cardinality(certificate[r]) \geq (n - t0)
     /\ confirmed' = [confirmed EXCEPT ![r] = "true"]
     /\ rState' = [rState EXCEPT ![r] = "confirmed"]
-    /\ BroadcastCertificate(r)
+    /\ broadcastCertificate(r, predecisions[r], certificate[r])
     /\ UNCHANGED <<  proof, predecisions, is_byzantine, obtainedCertificates, certificate, submitted, conflictingCertificates >>
 
-receiveCertificate(r) ==
+pReceiveCertificate(r) ==
     \E m \in msgs:
-        /\ m.type = "CERTIFICATE"
-        /\ m.to = r
-        /\ obtainedCertificates' = [obtainedCertificates EXCEPT ![r] = obtainedCertificates[r] \cup {m}]
-        /\ msgs' = msgs \ {m}
-        /\ UNCHANGED <<  proof, predecisions, is_byzantine, rState, confirmed, certificate, submitted, conflictingCertificates >> 
-
+        receiveCertificate(r, m)
 
 certificatesConflict(r, c1, c2) ==
     /\ c1 \in obtainedCertificates[r]
     /\ c2 \in obtainedCertificates[r]
     /\ c1.value # c2.value
 
-extractProof(r, c1, c2) == 
+pExtractProof(r, c1, c2) == 
     LET c1intersectionc2 == c1.certificate \intersect c2.certificate
     IN proof' = [proof EXCEPT ![r] = c1intersectionc2]
     
-proveCulpability(r) ==
+pProveCulpability(r) ==
     /\ r \in replicas
     /\ rState[r] = "confirmed"
     /\ \E c1, c2 \in obtainedCertificates[r] :
@@ -142,8 +186,14 @@ proveCulpability(r) ==
        /\ conflictingCertificates' = [conflictingCertificates EXCEPT ![r] = {c1.signed, c2.signed}]
     /\ rState' = [rState EXCEPT ![r] = "proved"]
     /\ UNCHANGED <<  predecisions, is_byzantine, obtainedCertificates, confirmed, certificate, msgs, submitted >>
-   
 
+protocolTransition(r) ==
+    \/ pSubmit(r)
+    \/ pReceiveSubmit(r)
+    \/ pConfirm(r)
+    \/ pReceiveCertificate(r)
+    \/ pProveCulpability(r)
+   
 -----------------------------------------------------------------------------
 (*                          inductive specification                         *)
 -----------------------------------------------------------------------------
@@ -180,12 +230,10 @@ Init ==
     /\ Consensus
 
 Next == \E r \in replicas : 
-            \/ submit(r)
-            \/ receiveSubmit(r)
-            \/ confirm(r)
-            \/ receiveCertificate(r)
-            \/ proveCulpability(r)
-            \/ submitByzantine(r)
+            \/ /\ is_byzantine[r] = "true"
+               /\ \/ networkTransition(r)
+                  \/ stateTransition(r)
+            \/ protocolTransition(r)
 
 vars == << is_byzantine, predecisions, confirmed, certificate, obtainedCertificates, proof, msgs, rState, submitted, conflictingCertificates >>
 
