@@ -1,0 +1,575 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{minted}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usemintedstyle{tango}
+%\usepackage{mathpartir}
+
+%\settopmatter{printfolios=true,printccs=false,printacmref=false}
+
+\usepackage{booktabs}   %% For formal tables:
+\usepackage{subcaption} %% For complex figures with subfigures/subcaptions
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{textcomp}
+\usepackage{mathtools}
+\usepackage{amscd}
+\usepackage{amsfonts}
+\usepackage{varwidth}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{float}
+\usepackage{multirow}
+\usepackage[noend]{algorithmic}
+\usepackage{mathrsfs}
+\usepackage{mathpartir}
+\usepackage{stmaryrd}
+\usepackage{url}
+\usepackage{hyperref}
+\usepackage{xspace}
+\usepackage{verbatim}
+\usepackage{lipsum}
+\usepackage{wrapfig}
+\newcounter{tags}
+\usepackage{enumitem}
+\usepackage{url}
+\usepackage[absolute,overlay]{textpos}
+
+
+\makeatletter % allow us to mention @-commands
+\def\arcr{\@arraycr}
+\makeatother
+
+\usepackage{libertine}
+\usepackage[T1]{fontenc}
+
+\floatstyle{plaintop}
+\restylefloat{table}
+
+% Balance citations
+\usepackage{flushend}
+
+%\usepackage[colorlinks=true,allcolors=blue,breaklinks,draft=false]{hyperref}
+%\hypersetup{linkcolor=black,citecolor=black,urlcolor=RubineRed}
+%\usepackage{cite}
+%\usepackage{parskip}
+% Bibtgex tweaks
+%\setcitestyle{square}
+
+\usepackage{hyphenat}
+\hyphenation{Block-chain}
+\hyphenation{block-chain}
+
+
+%\usepackage{natbib}
+\newcounter{tagz}
+
+%\setlist[itemize]{leftmargin=*}
+
+\usepackage{libertine}
+%\usepackage[varqu]{zi4}
+\usepackage[libertine]{newtxmath}
+\usepackage[T1]{fontenc}
+
+\input{macro.tex}
+
+
+\title{ABC specification for Coq Proof Assistant}
+\author{Karolina Grzeszkiewicz }
+\date{January 2023}
+
+\begin{document}
+
+
+\maketitle
+
+\section{Assumptions and structure}
+
+\textbf{Assumptions behind the model:}
+\begin{itemize}
+    \item We are modelling the protocol with respect to consensus and accountability properties, not communication complexity – hence we do not model the optimisations, but rather we focus on the main skeleton of the protocol. In particular, instead of having a preliminary round of light certificate exchange (which has lower communication complexity than a full certificate exchange and eliminates the need for full certificate exchange in case of no light certificate conflicts), and then a full certificate exchange, we model only the full certificate exchange.
+    \item Public Key Cryptography is used to sign the value that a given node is submitting, and the signature can then be verified by any other node. We do not adopt any particular scheme, but rather take the secret keys of nodes and the sign and verify functions are parameters of the model, with the minimal requirement that a signature is valid if and only if it was produced with the sign function. We also assume that secret keys are unique, and through the protocol semantics we enforce that the secret keys of honest nodes are not shared.  
+    \item Certificates (full certificates) consist of a value, and pairs consisting of node address and signature which can be verified knowing the node's address (for the sake of simplicity, usually this is done with private keys)
+    \item Our model describes the possible executions of a system with N processes, t Byzantine processes, and a function $\delta$ from processes to values accepted in the BFT, where N-t processes follow the Accountable Confirmer protocol, and t processes can exhibit arbitrary behaviour constrained by the network semantics and limitations imposed by the cryptography used
+    \item The system is parametrised by a set of consensus parameters: (1) a set of all addresses of nodes in the network (2) a set of addresses that belong to byzantine processes (must be a subset of (1)) (3) a function $\delta$ from addresses to values (values accepted in the BFT)
+\end{itemize}
+\vspace{3mm}
+
+\section{Framework parameters and axioms}
+
+\textbf{Parameters:}
+
+{
+%\setlength{\belowcaptionskip}{-10pt}
+\begin{figure}[h]
+%\fbox{
+\begin{varwidth}{\dimexpr\textwidth+2\fboxsep-2\fboxrule\relax}
+\centering
+{\small{
+\begin{tabular}{c}
+\begin{minipage}{0.435\linewidth}
+{\small{
+\[
+\begin{array}{r@{\ }c@{\ \ }l}
+  \Addr & \eqdef & \Nat \\[2pt]
+   \NodeAddr & \subseteq & \Addr \\[2pt]
+   \ByzAddr &  \subseteq &  \NodeAddr \\[2pt]
+   \mathsf{HonestAddr} & ::= & \NodeAddr \setminus \ByzAddr \\[2pt]
+  \N & ::= &  | \NodeAddr | \\[2pt]
+  \tZero & ::= & \lceil \frac{N}{3} \rceil - 1 \\[2pt]
+  \tN & ::= & | \ByzAddr |
+\end{array}
+\]
+}}
+\end{minipage}
+\\[3pt]
+\small{(a) {\textbf{Network parameters}}}
+\\[4pt]
+%\hline
+\\[-8pt]
+\begin{minipage}{0.43\linewidth}
+{\small{
+\[
+\begin{array}{r@{\ }c@{\ }l}
+  \Value & : & \eqType \\[2pt]
+  \mathsf{Key} & : & \eqType \\[2pt]
+  \mathsf{Signature} & : & \eqType \\[2pt]
+  \valuebft & : & \Addr \to \optValue \\[2pt]
+  % \validate & : & \Cert \to \Bool \\[2pt]
+  \mathsf{verify} & : & \Value \to \mathsf{Signature} \to \mathsf{NodeAddr} \to \Bool \\[2pt]
+  \mathsf{secret\_key} & : & \Addr \to \mathsf{Key} \\[2pt]
+  \mathsf{sign} & : & \Value \to \mathsf{Key} \to \mathsf{Signature}
+\end{array}
+\]
+}}
+\end{minipage}
+\\[3pt]
+\small{(b) {\textbf{State parameters}}}
+\end{tabular}
+}}
+\end{varwidth}
+%}
+\caption{Framework parameters.}
+\label{fig:blocks}
+\end{figure}
+}
+\vspace{3mm}
+
+\noindent Note that $\mathit{value\_bft}$ represents the values decided via the BFT protocol. Then $value\_bft$ can be any function from node addresses to values provided that the following Byzantine consensus properties hold. Similarly, we define the necessary properties of the $\mathsf{secret\_key}, \mathsf{sign}, \mathsf{verify}$ functions.
+\vspace{2mm}
+
+\noindent \textbf{Axioms:}
+\vspace{2mm}
+
+{
+%\setlength{\belowcaptionskip}{-10pt}
+\begin{figure}[h]
+%\fbox{
+\begin{varwidth}{\dimexpr\textwidth+2\fboxsep-2\fboxrule\relax}
+\centering
+{\small{
+\begin{tabular}{c}
+\begin{minipage}{0.44\linewidth}
+{\small{
+\[
+\!\!\!
+\begin{array}{l@{\ }c@{\ \ }l}
+  \bfttermination & : & \tN \leq \tZero \implies \forall \mathsf{n} \in \NodeAddr \setminus \ByzAddr, \exists \: \mathsf{v} : \Value, \valuebft(\mathsf{n}) = \SomeV \: \mathsf{v}  \\[2pt]
+  \bftagreement & : & \tN \leq \tZero \implies \forall \mathsf{n_1}, \mathsf{n_2} \in \NodeAddr \setminus \ByzAddr,  \valuebft(\mathsf{n_1}) = \valuebft(\mathsf{n_2}) \\[2pt]
+  \twocorrectnodes & : & | \mathsf{HonestAddr} | \:  \geq 2 \\[2pt]
+  % \certvalidation & : & \forall \: v : \Value, \: nsig \: \in \: \mathcal{P}(\NodeAddr \times \mathsf{Signature}), \\[2pt] \: 
+  % & & \validate(\angled{\mathit{v}, \mathit{nsig}})
+  % \iff \forall \: \angled{n, sig} \: \in nsig, \: \mathit{sig} = \mathsf{sign}(\mathit{v}, \mathit{\mathsf{secret\_key}(\mathit{n})})  
+ % \\[2pt]
+  \mathit{authentication} & : & \forall \: v : \Value, \mathit{sig} : \mathsf{Signature}, \: n \in \NodeAddr, 
+  \mathsf{verify}(v, \mathit{sig}, \mathsf{public\_key}(n)) \\[2pt]
+  & & \iff \mathit{sig} = \mathsf{sign}(\mathit{v}, \mathit{\mathsf{secret\_key}(\mathit{n})}) \\[2pt]
+  \mathit{uniqueness \: of \: secret \: keys} & : & \forall \: n_{1}, \: n_{2} \in \NodeAddr, \: n_{1} \neq n_{2} \implies \mathsf{secret\_key}(\mathit{n_{1}}) \neq \mathsf{secret\_key}(\mathit{n_{2}}) \\[2pt]
+  \mathit{uniqueness \: of \: signatures} & : & \forall v_{1}, \: v_{2} \: : \Value, \: n_{1}, \: n_{2} \in \NodeAddr, \: v_{1} \neq v_{2} \vee n_{1} \neq n_{2} \\[2pt]
+  & & \implies \mathsf{sign}(v_{1}, \mathsf{secret\_key}(\mathit{n_{1}})) \neq \mathsf{sign}(v_{2}, \mathsf{secret\_key}(\mathit{n_{2}})) \\[2pt]
+\end{array}
+\]
+}}
+\end{minipage}
+\end{tabular}
+}}
+\end{varwidth}
+%}
+\caption{Axioms of the framework parameters.}
+\label{fig:axioms}
+\end{figure}
+}
+
+
+\vspace{2mm}
+\noindent BFT validity is not needed here since it asserts that the value decided by correct nodes must have been proposed by a correct node. This property is not relevant to the Accountable Confirmer algorithm.
+
+\section{Protocol semantics}
+
+\textbf{System configurations:}
+
+\begin{equation*}
+    \triangle \in \Gstate \triangleq \Addr \to \lstate
+\end{equation*}
+
+\begin{equation*}
+    \mathsf{P} \in \PSoup \triangleq \mathcal{P}(\Packet)
+\end{equation*}
+
+%\begin{equation*}
+%    \Sigma \in \Ghost \triangleq \mathcal{P}(\Gstate)
+%\end{equation*}
+
+\begin{equation*}
+    \sigma \in \mathsf{Config} \triangleq \Gstate \times \PSoup 
+    %\times \Sigma
+\end{equation*}
+
+\vspace{2mm}
+
+\noindent \textbf{Local states:}
+\vspace{2mm}
+
+\begin{equation*}
+    \delta \in \LocalState \triangleq \Addr \times \Bool \times \Cert \times \mathcal{P}(\Cert) 
+    % \times \Proof
+\end{equation*}
+\begin{equation*}
+    c \in \Cert \triangleq \Value \times \mathcal{P}(\NodeAddr \times \mathsf{Signature})
+\end{equation*}
+%\begin{equation*}
+%   p \in \Proof \triangleq \mathcal{P}(\NodeAddr)
+%\end{equation*}
+
+\vspace{2mm}
+
+\noindent \textbf{Messages and Packets:}
+\vspace{2mm}
+
+$
+\begin{array}{r@{\ }c@{\ }l}
+  p \in \Packet & \eqdef & \Addr \times \Addr \times \Msg \times \Bool
+  \\[3pt]
+  P_{\mathit{rcv}} & := & \{ \angled{\src \: p, \dest \: p, \msg \: p} | \: p \in P \: \wedge \: \received \: p = \mathit{true} \} \\[3pt]
+  P_{\mathit{sent}} & := & \{ \angled{\src \: p, \dest \: p, \msg \: p} | \: p \in P \} \\[3pt]
+  m \in \Msg & ::= & \submitmsg (\angled{\mathsf{v} : \Value, \: \mathsf{sig} : \mathsf{Signature}}) \\[2pt]
+               & | & \confirmmsg (\mathsf{c} : \Cert)
+\end{array}
+$
+
+\section{Local Node Semantics}
+
+
+\textbf{Receive step transitions: $\lstate \stepr{p} (\lstate',
+  \packages)$}
+\vspace{2mm}
+
+\noindent RCVSUBMIT
+
+\begin{mathpar}
+\inferrule
+  {\nsigs' = (\mathsf{if} \: (\val = \val' \: \mathsf{and} \: \mathsf{verify}(\val, \mathit{sig}, \mathsf{from})  \: \mathsf{and} \: \mathsf{not} \: \conf) \: \mathsf{then} \: \{ \angled{\from, \sig} \} \cup \nsigs \: \mathsf{else} \: \nsigs) \\ 
+  \conf' = |\mathit{\nsigs'}| \geq \N - \tZero \\ 
+  \ps = (\mathsf{if} \: \conf' \: \mathsf{then} \: \{ \angled{\this, n, \confirmmsg \: \angled{\val, \mathit{\nsigs'}}} \: | \: n \in \NodeAddr\} \: \mathsf{else} \: \emptyset \\
+  %\mathit{cert'} = \mathsf{if} \: |\mathit{nsigs'}| \leq \N - \tZero \: \mathsf{then} \: \angled{v, \mathit{nsigs'}} \: \mathsf{else} \: \angled{v, \mathit{nsigs}} 
+  % \mathit{sig} = \mathsf{sign}(\mathit{v}, \mathsf{secret\_key(
+  }
+  {\angled{\this, \conf, \angled{\val, \nsigs}, \certs} \stepr{\angled{\from,\!\ \this,\!\ \submitmsg \: \angled{v', \sig}}} (\angled{\this, \conf', \angled{\val, \nsigs'}, \certs}, \ps)}
+\end{mathpar}
+
+\vspace{2mm}
+
+\noindent RCVCONFIRM
+
+\begin{mathpar}
+\inferrule
+  {\forall \: \angled{n, \sig} \: \in \nsigs, \: \mathsf{verify}(\val, \sig, n)
+  }
+  {\angled{\this, \conf, \cert, \certs} \stepr{\angled{\from,\!\ \this,\!\ \confirmmsg \: \angled{v, \: \nsigs}}} (\angled{\this, \conf, \cert, \{ \angled{\val, \: \nsigs} \} \cup \certs}, \emptyset)}
+\end{mathpar}
+
+\vspace{2mm}
+
+\noindent \textbf{Internal step transitions: $\: \lstate \stepi{} (\lstate',
+  \packages)$}
+\vspace{2mm}
+
+\noindent INTSUBMIT
+
+\begin{mathpar}
+\inferrule
+  { \mathit{sig} = \mathsf{sign}(\valuebft(\this), \mathsf{secret\_key(\mathit{\this})}) \\
+  \ps =  \{ \angled{\this, n, \submitmsg \: \angled{\valuebft (\this), \mathit{sig}}} \: | \: n \in \NodeAddr \}}
+  {\angled{\this, \conf, \cert, \certs} \: \stepi{} \: (\angled{\this, \conf, \cert, \certs}, \: \ps)}
+\end{mathpar}
+\vspace{2mm}
+
+\vspace{2mm}
+
+%\noindent INTPROVE
+
+%\begin{mathpar}
+%\inferrule
+%  { proof = \emptyset \\
+%  \exists \: c_{1}, c_{2} \: \in \: certs, \: \mathsf{conflict}(c_{1}, c_{2}) \\
+%  proof' = \mathsf{extract\_proof}(c_{1}, c_{2})}
+%  {\angled{n, conf, cert, certs, proof} \: \stepi{} \: (\angled{n, conf, cert, certs, proof'}, \: \emptyset)}
+%\end{mathpar}
+\vspace{2mm}
+
+%\noindent Note: If we want proof to be part of the local state, then we can also have an internal transition for updating the proof of culpability
+
+\section{Network transitions}
+
+\textbf{Network transitions: $\angled{\gstate, P} \stepn{s} \angled{\gstate', P'}$}
+\vspace{2mm}
+
+\noindent NETIDENTITY
+\vspace{2mm}
+
+\begin{equation*}
+    \angled{\triangle, P} \: \stepn{\mathsf{id}} \: \angled{\triangle, P}
+\end{equation*}
+
+\vspace{2mm}
+
+\noindent NETDELIVER $(p, \delta)$
+\vspace{2mm}
+
+\begin{mathpar}
+\inferrule
+  { p \in P \\
+\dest~p = a \\
+\received ~p = \mathit{false} \\
+a \in \HAddr \\
+\gstate(a) = \lstate \\
+\lstate \stepr{p} (\lstate', \packages)}
+  {\angled{\gstate, P} \stepn{\mathsf{rcv}\!\ a}
+\angled{\gstate[a \mapsto \lstate'], P \setminus \{p\} \cup \packages \cup \{ \angled{\src \: p, \dest \: p, \msg \: p, \mathit{true}} \} }}
+\end{mathpar}
+\vspace{2mm}
+
+\noindent NETDELIVER corresponds to a global state transition of delivering a randomly picked unread message $p$ from packet soup $P$ to a destination $a$ with state $\delta$, where $a$ can be $a$ must be a non-Byzantine address.
+
+\vspace{2mm}
+
+\vspace{2mm}
+
+\noindent NETINTERNAL $(a, \delta)$
+\vspace{2mm}
+
+\begin{mathpar}
+\inferrule
+  {
+\gstate(a) = \lstate
+\\
+a \in \HAddr \\
+\lstate \stepi{} (\lstate', \packages)
+}
+%
+{\angled{\gstate, P} \stepn{\mathsf{int}}
+\angled{\gstate[a \mapsto \lstate'], P \cup \packages}
+}
+\end{mathpar}
+\vspace{2mm}
+
+\noindent This corresponds to a node taking an internal step from state $\delta$ to state $\delta'$, emitting packets, used for transitions not triggered by receiving any message, i.e. broadcasting submit messages.
+
+\vspace{2mm}
+
+\vspace{2mm}
+
+\noindent NETBYZSUBMIT $p$
+\vspace{2mm}
+
+\begin{mathpar}
+\inferrule
+  { p : \Packet
+  \\ \mathsf{src} \: p \: \in \: \ByzAddr
+  \\ \mathsf{msg\_type} \: (\mathsf{msg} \: p) \: = \: \mathsf{MSubmit}  
+  }
+  {\angled{\triangle, P} \: \stepn{\mathsf{byz}\!\ p} \: \angled{ \triangle, P \cup \:  \{p\}} }
+\end{mathpar}
+\vspace{2mm}
+
+\noindent Byzantine nodes can send submit messages with arbitrary values and signatures – even if the signature is invalid. By RCVSUBMIT honest nodes should ignore messages with invalid signatures.
+
+\vspace{2mm}
+
+\noindent NETBYZCONFIRM $p$
+\vspace{2mm}
+
+\begin{mathpar}
+\inferrule
+  { p : \Packet
+  \\ \src \: p \: \in \: \ByzAddr
+  \\ \exists \: \mathit{v} : \Value, \: \nsigs \in \mathcal{P}(\NodeAddr \times \mathsf{Signature}), \: \msg \: p \: = \: \mathsf{MConfirm} \: \angled{v, \nsigs}
+  \\ \: \forall \: \angled{n, \sig} \: \in \: \nsigs, \: n \in \HAddr \: \wedge \: \sig = \mathsf{sign}(v, \mathsf{secret\_key}(n)) \\
+  \implies \exists \: n' \in \NodeAddr, b : \mathsf{Bool},
+  \: \angled{n, \mathit{n'}, \: \mathsf{MSubmit} \: \angled{v, \sig}, \: b} \in P
+  }
+  {\angled{\triangle, P} \: \stepn{\mathsf{byz}\!\ p} \: \angled{ \triangle, P \cup \:  \{p\}} }
+\end{mathpar}
+\vspace{2mm}
+
+\noindent The confirm messages emitted by byzantine nodes are subject to some constraints due to the fact that they can't forge the signatures of other nodes without knowing their secret keys. Now we assume that the honest nodes follow the given Public Key Encryption protocol by not sharing their private keys, but we can't expect the byzantine nodes to keep their secret keys secret. For instance, the byzantine nodes might be collaborating and intentionally sharing their secret keys with each other, or simply be dismissive of the rules of secure communication for any other reason. Hence, we only require that for all signatures of honest nodes in the certificate prepared by a byzantine node, if the signature for a given value is valid, then there is a corresponding submit message in the packet soup with that signature and value (either sent to the preparing byzantine node, or to any other node as the byzantine node might have been eavesdropping on the communication channel and storing signatures of other nodes). Yet there are no requirements on signatures of byzantine nodes (as they might be forged or correspond to messages in the packet soup).`
+
+\section{Properties of the Accountable Confirmer}
+
+\textbf{Terminating Convergence:}
+\vspace{2mm}
+
+\noindent \textit{If the number of faulty processes does not exceed $t_{0}$ and all correct processes submit the same value, then the value is eventually confirmed by every correct process.}
+\vspace{2mm}
+
+\noindent This is a liveness property so we do not prove it.
+
+% \begin{flalign*}
+%     %& \tN \leq \tZero \: \\ &&\\\nonumber
+%     & \tN \leq \tZero \wedge \: \exists \: v : \Value, \: \forall \: a \: \in \NodeAddr \setminus \ByzAddr, \: \valuebft \: a \: = \SomeV \: v &&\\\nonumber
+%     & \wedge \: \forall a \in \NodeAddr \setminus \ByzAddr, \: \mathsf{confirmed} \: \triangle(a) = true \\\nonumber
+%     & \implies \forall a \in \NodeAddr \setminus \ByzAddr, \exists \: ps \in \mathcal{P}(\NodeAddr) \: cert \: \triangle(a) = \angled{v, ps} &&\\\nonumber
+% \end{flalign*}
+% \vspace{2mm}
+\vspace{2mm}
+
+\noindent \textbf{Agreement:}
+\vspace{2mm}
+
+\noindent \textit{If the number of faulty processes does not exceed $t_0$, then no two correct processes confirm different values.}
+\vspace{2mm}
+
+%\begin{flalign*}
+%    & t \leq t_{0} \: \implies \forall \: a_{1}, a_{2} \: \in \NodeAddr \setminus \ByzAddr, &&\\\nonumber
+%    & \mathsf{confirmed} \: \triangle(a_{1}) \: \wedge \: \mathsf{confirmed} \: \triangle(a_{2})
+%    \implies \valuebft \: a_{1} = \valuebft \: a_{2} &&\\\nonumber
+%\end{flalign*}
+
+%\vspace{2mm}
+
+\noindent The proof of this property is trivial since if $t \leq t_0$ then all honest processes submit the same value, and an honest process can only confirm the same value it has submitted.
+\vspace{2mm}
+
+\noindent \textbf{Validity:}
+\vspace{2mm}
+
+\noindent \textit{Value confirmed by a correct process was submitted by a correct process.}
+\vspace{2mm}
+
+% \begin{flalign*}
+%     & \forall \: a \in \: \NodeAddr \setminus \ByzAddr \: \mathsf{confirmed} \: \triangle(a) = true  \wedge \: \exists \: v : \Value, \: ps \in \mathcal{P}(\NodeAddr) \: cert \triangle(a) = \angled{v, ps} &&\\\nonumber
+%     & \implies \exists \: a' \in \: \NodeAddr \setminus \ByzAddr \: \: \valuebft \: a' = v &&\\\nonumber
+% \end{flalign*}
+
+%\vspace{2mm}
+
+\noindent Also holds trivially for the same reason as above.
+\vspace{2mm}
+
+\noindent \textbf{Accountability:}
+\vspace{2mm}
+
+\noindent \textit{ If two correct processes confirm different values, then every correct process eventually detects at least $t_{0} + 1$ faulty processes and obtains a proof of culpability of all detected processes.}
+\begin{flalign*}
+    & \exists \: a_{1}, a_{2} \: \in \HAddr, \mathsf{confirmed} \: \triangle(a_{1}) \: \wedge \: \mathsf{confirmed} \: \triangle(a_{2}) \: \wedge \: \valuebft \: a_{1} \neq \valuebft \: a_{2} &&\\\nonumber
+    & \implies \: \forall \: a \: \in \HAddr, &&\\\nonumber
+    & |certs \: \triangle(a)| \geq \N - \tZero \wedge proof \: \triangle(a) \neq \emptyset \implies |proof(\triangle(a))| \geq \tZero + 1 &&\\\nonumber
+\end{flalign*}
+\noindent It is a liveness property and the formulation above does not assert anything interesting so we do not prove it.
+
+\vspace{2mm}
+
+\noindent \textbf{Accountability – Soundness:}
+\vspace{2mm}
+
+\noindent \textit{ If a correct process obtains a proof of culpability of another processes, then the detected process is byzantine. }
+
+\begin{flalign*}
+    \mathit{AccSoundness}(\angled{\triangle, P}) := \: & \forall \: n \: \in \NodeAddr, \: h \in \HAddr, &&\\\nonumber
+    & \: n \in proof(\triangle(h)) \implies n \in \ByzAddr &&\\\nonumber
+    %& &&\\\nonumber
+\end{flalign*}
+
+\noindent This is the property that we want to prove.
+
+\vspace{2mm}
+
+\noindent \textbf{Accountability – Soundness':}
+\vspace{2mm}
+
+\noindent \textit{ If a correct process obtains a proof of culpability of another processes, then the detected process has behaved byzantine.}
+
+\begin{flalign*}
+    \mathit{AccSoundness}(\angled{\triangle, P}) := \: & \forall \: n \: \in \NodeAddr, \: h \in \HAddr, &&\\\nonumber
+    & \: n \in proof(\triangle(h)) \implies \mathsf{behavedByz}(n, P) &&\\\nonumber
+    %& &&\\\nonumber
+\end{flalign*}
+\noindent where:
+\begin{flalign*}
+    & \mathsf{behavedByz}(n, P) := &&\\\nonumber
+    & \exists \: v_{1}, \: v_{2} : \Value, \mathit{sig}_{1}, \mathit{sig}_{2}, a_{1}, a_{2} \in \NodeAddr, &&\\\nonumber
+    & \wedge v_{1} \neq v_{2} &&\\\nonumber
+    & \wedge \angled{n, \: a_{1}, \submitmsg \angled{v_{1}, \mathit{sig}_{1}}, \mathsf{true}} \: \in P &&\\\nonumber
+    & \wedge \angled{n, \: a_{2}, \submitmsg \angled{v_{2}, \mathit{sig}_{2}}, \mathsf{true}} \: \in P &&\\\nonumber
+    & \wedge \mathit{sig}_{1} = \mathsf{sign}(v_{1}, \mathsf{secret\_key}(n)) &&\\\nonumber
+    & \wedge \mathit{sig}_{2} = \mathsf{sign}(v_{2}, \mathsf{secret\_key}(n)) &&\\\nonumber
+\end{flalign*}
+
+\noindent This is a stronger notion of accountability, which does not necessarily hold. It is violated by the "pirate lied about another pirate" scenario in which one of the conflicting confirm messages was fabricated by a byzantine node $b$, and the signature of the byzantine node $n$ in the certificate was also forged by $b$ (given that $b$ might have had access to $n$'s secret key) rather than being taken from a corresponding submit message in the Packet Soup.
+
+
+\section{Invariant}
+
+\begin{flalign*}
+\Inv(\angled{\triangle, P}) & := \\
+& \wedge \: \forall \: \certs \in P(\Cert), n \in \prooffunc(\certs), \\ 
+& \hspace{2em} \exists \val_{1}, \val_{2} : \Value, \sig_{1}, \sig_{2} \in \Sig, \nsigs_{1}, \nsigs_{2} \in P(\NodeAddr \times \Sig), \\
+& \hspace{2em}  \wedge \angled{\val_{1}, \nsigs_{1}} \in \certs \\
+& \hspace{2em} \wedge \angled{\val_{2}, \nsigs_{2}} \in \certs \\
+& \hspace{2em} \wedge \val_{1} \neq \val_{2} \\
+& \hspace{2em} \wedge \angled{n, \sig_{1}} \in \nsigs_{1} \\ 
+& \hspace{2em} \wedge \angled{n, \sig_{2}} \in \nsigs_{2} \\ 
+%end of 1
+& \wedge \: \forall \: h \: \in \mathsf{Honest}, \val : \Value, \nsigs \in P(\NodeAddr \times \Sig), \\ 
+& \hspace{2em} \angled{\val, \nsigs} \in \mathit{certs}(\triangle(h)) \\
+& \hspace{2em} \implies \exists n' \in \NodeAddr, \angled{n', h, \confirmmsg \: \angled{\val, \nsigs}} \in \Prcv \\
+& \hspace{4em} \wedge \forall \angled{n, \sig} \in \nsigs, \: \sig = \sign(\val, \seckey(n)) \\ 
+%end of 2
+& \wedge \: \forall \: h \: \in \mathsf{Honest}, n \in \NodeAddr, \val : \Value, \nsigs \in P(\NodeAddr \times \Sig), \\ 
+& \hspace{2em} \angled{h, n, \confirmmsg \: \angled{\val, \nsigs}} \in \Psent \implies \cert(\triangle(h)) = \angled{\val, \nsigs} \\
+%end of 3
+& \wedge \: \forall \: h \: \in \mathsf{Honest}, \val : \Value, \nsigs \in P(\NodeAddr \times \Sig), \\ 
+& \hspace{2em} \cert(\triangle(h)) = \angled{\val, \nsigs} \\ 
+& \hspace{2em} \implies \forall \angled{n, \sig} \in \nsigs, \angled{n, h, \submitmsg \: \angled{\val, \sig}} \in \Prcv \: \wedge \: \sig = \sign(\val, \seckey(n)) \\
+%end of 4
+& \wedge \: \forall b \in \ByzAddr, h \in \NodeAddr, \val : \Value, \nsigs \in P(\NodeAddr \times \Sig), \\ 
+& \hspace{2em} \angled{b, h, \confirmmsg \: \angled{\val, \nsigs}} \in \Psent \\ 
+& \hspace{2em} \implies \forall \angled{n, \sig} \in \nsigs, \\ 
+& \hspace{4em} n \in \HAddr \: \wedge \: \sig = \sign(\val, \seckey(n)) \\
+& \hspace{4em} \implies
+\exists n' \in \NodeAddr, \: \angled{n, n', \submitmsg \: \angled{v, \sig}} \in \Psent \\ 
+%end of 5
+& \wedge \: \forall \: h \: \in \mathsf{Honest}, n_{1}, n_{2} \in \NodeAddr, \sig_{1}, \sig_{2} \in \Sig, \val_{1}, \val_{2} : \Value, \\ 
+& \hspace{2em} (\angled{h, n_{1}, \submitmsg \: \angled{v_{1}, \sig_{1}}} \in \Psent \: \wedge \: \sig_{1} = \sign(v_{1}, \seckey(h)) \\
+& \hspace{2em} \wedge \: \angled{h, n_{2}, \submitmsg \: \angled{v_{2}, \sig_{2}}} \in \Psent \: \wedge \: \sig_{2} = \sign(v_{2}, \seckey(h))) \\ 
+& \hspace{2em} \implies \: v_{1} = v_{2} \\ 
+%end of 6 
+& \wedge \forall p : \Packet, \: p \in \Prcv \implies p \in \Psent \\
+& \wedge \forall n \in \NodeAddr, \: n \notin \HAddr \implies n \in \ByzAddr \\
+\end{flalign*}
+
+
+\section{Other potentially useful properties}
+
+\begin{flalign*}
+\mathsf{CertIntersect}& (\angled{\triangle, P})  := \\
+& \forall \: a_{1}, a_{2} \: \in \: \NodeAddr \setminus \ByzAddr, \: \\
+& \mathsf{confirmed}(a_{1}) \wedge \mathsf{confirmed}(a_{2}) \\
+& \implies |\mathsf{nodes(certificate(a_{1}))} \cap \mathsf{nodes(certificate(a_{2}))}| \geq \: \tZero + 1 \\
+\end{flalign*}
+
+
+\end{document}

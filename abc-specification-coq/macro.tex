@@ -1,0 +1,329 @@
+\hyphenation{Dist-Algo}
+\hyphenation{Ssref-lect}
+
+\makeatletter
+\def\arcr{\@arraycr}
+\makeatother
+
+%% Math enumerations
+
+\makeatletter
+\newcommand{\mtmathitem}{%
+\xpatchcmd{\item}{\@inmatherr\item}{\relax\ifmmode$\fi}{}{\errmessage{Patching of \noexpand\item failed}}
+\xapptocmd{\@item}{$}{}{\errmessage{appending to \noexpand\@item failed}}}
+\makeatother
+\newenvironment{mathitem}[1][]{%
+\itemize[#1]\mtmathitem}{$\endlist}                    %$
+\newenvironment{mathenum}[1][]{%
+\enumerate[#1]\mtmathitem}{$\endlist}                  %$
+\newenvironment{mathdesc}[1][]{%
+\description[#1]\mtmathitem}{$\endlist}                %$
+%%%%%%%%%%%%
+% Colors
+\newcommand{\whitebox}[1]{\colorbox{white}{#1}}
+\newcommand{\graybox}[1]{\colorbox{light-gray}{#1}}
+\newcommand{\darkgraybox}[1]{\colorbox{ddarkgray}{#1}}
+\newcommand{\gbm}[1]{\graybox{${#1}$}}
+\newcommand{\Inv}{\text{\textsc{Inv}}}
+\newcommand{\TPCInv}{\text{\textsc{TPCInv}}}
+\newcommand{\fstar}{\text{F}^{\star}}
+\newcommand{\etc}{\emph{etc}}
+\newcommand{\ie}{\emph{i.e.}\xspace}
+\newcommand{\Ie}{\emph{I.e.}\xspace}
+\newcommand{\eg}{\emph{e.g.}\xspace}
+\newcommand{\Eg}{\emph{E.g.}\xspace}
+\newcommand{\vs}{\emph{vs.}\xspace}
+\newcommand{\etal}{\emph{et~al.}\xspace}
+\newcommand{\adhoc}{\emph{ad hoc}\xspace}
+\newcommand{\viz}{\emph{viz.}\xspace}
+\newcommand{\dom}[1]{\mathsf{dom}(#1)}
+%\newcommand{\im}[1]{\mathsf{im}(#1)}
+\newcommand{\im}[1]{{#1}}
+\newcommand{\aka}{\textit{a.k.a.}\xspace}
+\newcommand{\cf}{\textit{cf.}\xspace}
+\newcommand{\wrt}{\emph{wrt.}\xspace}
+\newcommand{\Iff}{\emph{iff}\xspace}
+\newcommand{\loef}{L\"{o}f}
+\newcommand{\denot}[1]{\llbracket{#1}\rrbracket}
+\newcommand{\ifext}[2]{\ifdefined\extflag{#1}\else{#2}\fi}
+\newcommand{\ifcomm}[1]{\ifdefined\extcomm{#1}\else{}\fi}
+% \theoremstyle{remark}
+% \newtheorem{example}{Example}[section]
+% \theoremstyle{definition}
+% \newtheorem{definition}{Definition}[section]
+%\theoremstyle{plain}
+% \newtheorem{theorem}{Theorem}[section]
+% \newtheorem{lemma}[theorem]{Lemma}
+% \newtheorem{proposition}[theorem]{Proposition}
+% \newtheorem{corollary}[theorem]{Corollary}
+\newenvironment{proofsketch}{\trivlist\item[]\emph{Proof sketch}:}%
+{\unskip\nobreak\hskip 1em plus 1fil\nobreak$\square$
+\parfillskip=0pt%
+\endtrivlist}
+%\newcommand{\mute}[1]{\ifcomm{#1}}
+\newcommand{\mute}[1]{{#1}}
+% remarks
+\newcommand{\todo}[1]{\mute{\textcolor{red}{({#1})}}}
+\newcommand{\gp}[1]{\mute{\textcolor{ACMPurple}{(George: {#1})}}}
+\newcommand{\is}[1]{\mute{\textcolor{ACMBlue}{(Ilya: {#1})}}}
+\newcommand{\code}[1]{\lstinline{#1}}
+\newcommand{\tsend}{\mathsf{send}}
+\newcommand{\treceive}{\mathsf{receive}}
+\newcommand{\tskip}{\mathsf{skip}}
+\newcommand{\disel}{{\sc Disel}\xspace}
+\newcommand{\withinvr}{{\sc WithInv}\xspace}
+\newcommand{\True}{\mathsf{True}}
+\newcommand{\id}{\mathsf{id}}
+\newcommand{\False}{\mathsf{False}}
+\newcommand{\set}[1]{\left\{{#1}\right\}}
+\newcommand{\angled}[1]{\langle{#1}\rangle}
+%% Specs
+\newcommand{\specK}[1]{\ensuremath{\textcolor{blue}{\set{#1}}}}
+\newcommand{\pre}[2]{\specK{\lambda {#1}.~{#2}}}
+\newcommand{\post}[3]{\specK{\lambda {#1}~{#2}.~{#3}}}
+\newcommand{\psep}{\ast}
+%% Protocols
+\newcommand{\ppr}{\mathcal{P}}
+\newcommand{\cpr}{\mathcal{C}}
+%% State-space and Transitions
+\newcommand{\treq}{\mathsf{Req}}
+\newcommand{\tresp}{\mathsf{Resp}}
+\newcommand{\acts}{\Send}
+\newcommand{\actr}{\Recv}
+\newcommand{\trans}[1]{\mathit{#1}}
+\newcommand{\To}{\mathit{to}}
+\newcommand{\Rs}{\mathit{rs}}
+\newcommand{\From}{\mathit{from}}
+\newcommand{\args}{\mathit{args}}
+\newcommand{\ans}{\mathit{ans}}
+\newcommand{\aand}{\wedge}
+\newcommand{\aandb}{\&\!\!\!\&}
+\newcommand{\oor}{\vee}
+\newcommand{\body}{\mathit{body}}
+\newcommand{\clients}{\overline{C}}
+\newcommand{\servers}{\overline{S}}
+\newcommand{\Send}{\mathsf{send}}
+\newcommand{\Recv}{\mathsf{recv}}
+\newcommand{\csend}[1]{\Send[#1]}
+\newcommand{\creceive}[1]{\Recn[#1]}
+\newcommand{\lab}{\ell}
+\newcommand{\Some}{\mathsf{Some}}
+\newcommand{\None}{\mathsf{None}}
+\newcommand{\truez}{\mathsf{true}}
+\newcommand{\falsez}{\mathsf{false}}
+\newcommand{\inject}{\ensuremath{\mathsf{inject}}\xspace{}}
+\newcommand{\unitz}{\mathsf{unit}\xspace{}}
+\newcommand{\letz}{\mathsf{{\bf let}}\xspace{}}
+\newcommand{\inz}{\mathsf{{\bf in}}\xspace{}}
+\newcommand{\retz}{\mathsf{{\bf return}}\xspace{}}
+\newcommand{\letrecz}{\mathsf{{\bf letrec}}\xspace{}}
+\newcommand{\ifz}{\mathsf{{\bf if}}\xspace{}}
+\newcommand{\thenz}{\mathsf{{\bf then}}\xspace{}}
+\newcommand{\elsez}{\mathsf{{\bf else}}\xspace{}}
+\newcommand{\Active}{\circ}
+\newcommand{\Consumed}{\bullet}
+\newcommand{\asgn}{\leftarrow}
+\newcommand{\vd}[1] {\mathrel{\overset{#1}{\vdash}}}
+\newcommand{\blockr}{\mathsf{receive\_req}}
+\newcommand{\blockresp}{\mathsf{receive\_resp}}
+\newcommand{\osserver}{\mathsf{simple\_server}}
+\newcommand{\dserver}{\mathsf{deleg\_server}}
+\newcommand{\cclient}{\mathsf{compute}}
+\newcommand{\bserver}{\mathsf{batch\_server}}
+\newcommand{\mserver}{\mathsf{memo\_server}}
+\newcommand{\num}[1]{{\text{{\scriptsize{#1}}}}}
+\newcommand{\eqdef}{\triangleq}
+\newcommand{\withinv}{\mathsf{WithInv}}
+\newcommand{\serv}{\mathit{serv}}
+\newcommand{\figsize}{\footnotesize}
+% Fancy pointers
+\newcommand{\ppts}[1]{\mathrel{\overset{#1}{\mapsto}}}
+\newcommand{\pmap}{\mathrel{\overset{\text{\!\!\!\tiny{fin}}}{\rightharpoonup}}}
+\newcommand{\pfun}{\rightharpoonup}
+% State-space and protocols
+\newcommand{\Lab}{\mathsf{Lab}}
+\newcommand{\Mid}{\mathsf{Mid}}
+\newcommand{\Node}{\mathsf{Node}}
+\newcommand{\Loc}{\mathsf{Loc}}
+\newcommand{\Tag}{\mathsf{Tag}}
+\newcommand{\Nat}{\mathbb{N}}
+%\newcommand{\msg}{\mathsf{m}}
+\newcommand{\Statelet}{\mathsf{Statelet}}
+\newcommand{\State}{\mathsf{State}}
+\newcommand{\LocalState}{\mathsf{LocalState}}
+\newcommand{\MessageSoup}{\mathsf{MessageSoup}}
+\newcommand{\PacketSoup}{\mathsf{PacketSoup}}
+\newcommand{\Msgs}{\mathit{MS}}
+\newcommand{\MS}{\Msgs}
+\newcommand{\Val}{\mathsf{Val}}
+\newcommand{\DLState}{\mathsf{DistLocState}}
+\newcommand{\Protocol}{\mathsf{Protocol}}
+\newcommand{\Prop}{\mathsf{Prop}}
+\newcommand{\Pre}{\mathsf{Pre}}
+\newcommand{\Step}{\mathsf{Step}}
+\newcommand{\bool}{\mathsf{bool}}
+\newcommand{\coh}{\mathsf{Coh}}
+\newcommand{\Coh}[1]{\coh({#1})}
+\newcommand{\cliq}{\mathsf{Cliq}}
+\newcommand{\Cliq}[1]{\cliq({#1})}
+\newcommand{\World}{\mathsf{World}}
+\newcommand{\Trans}{\tau}
+\newcommand{\Transitions}{T}
+\newcommand{\fun}{\rightarrow}
+\newcommand{\join}{\uplus}
+% Semantics
+\newcommand{\nstep}[2]{\mathrel{\overset{#2}{~\leadsto_{#1}~}}}
+\newcommand{\nsem}[4]{{#3}\mathrel{\overset{#2}{\leadsto_{#1}}}{#4}}
+\newcommand{\ninf}[4]{{#3}\mathrel{\overset{\!\!\!\neg{#2}*}{\leadsto_{#1}}}{#4}}
+\newcommand{\nsemw}[4]{{#3}\mathrel{\overset{w, #2}{\leadsto_{#1}}}{#4}}
+% TPC
+\newcommand{\tprep}{\mathsf{Prepare}}
+\newcommand{\tyes}{\mathsf{Yes}}
+\newcommand{\tno}{\mathsf{No}}
+\newcommand{\tcommit}{\mathsf{Commit}}
+\newcommand{\tabort}{\mathsf{Abort}}
+\newcommand{\tackcommit}{\mathsf{AckCommit}}
+\newcommand{\tackabort}{\mathsf{AckAbort}}
+\newcommand{\cn}{\mathsf{Coord}}
+\newcommand{\pts}{\overline{P}}
+\newcommand{\pt}{\mathtt{pt}}
+\newcommand{\round}{\mathit{r}}
+\newcommand{\tpclog}{\mathit{log}}
+\newcommand{\data}{\mathit{data}}
+\newcommand{\stat}{\kappa}
+\newcommand{\done}{\mathsf{done}}
+\newcommand{\prei}{\mathit{pre}}
+\newcommand{\pinit}{\mathsf{PInit}}
+\newcommand{\pgotreq}{\mathsf{PGotRequest}}
+\newcommand{\pyes}{\mathsf{PRespYes}}
+\newcommand{\pno}{\mathsf{PRespNo}}
+\newcommand{\pcommit}{\mathsf{PCommit}}
+\newcommand{\pabort}{\mathsf{PAbort}}
+\newcommand{\cinit}{\mathsf{CInit}}
+\newcommand{\csendprep}{\mathsf{CSendPrep}}
+\newcommand{\cwaitprep}{\mathsf{CWaitPrepResp}}
+\newcommand{\csendcommit}{\mathsf{CSendCommit}}
+\newcommand{\csendabort}{\mathsf{CSendAbort}}
+\newcommand{\cwaitcommit}{\mathsf{CWaitCommitAck}}
+\newcommand{\cwaitabort}{\mathsf{CWaitAbortAck}}
+\newcommand{\gb}{\mathit{GB}\xspace{}}
+\newcommand{\hash}{\mathit{hash}\xspace{}}
+\newcommand{\vaf}{\mathit{VAF}\xspace{}}
+\newcommand{\fcr}{\mathit{FCR}\xspace{}}
+\newcommand{\cfr}{\fcr}
+\newcommand{\pf}{\mathit{pf}\xspace{}}
+% Data types
+\newcommand{\eqType}{\mathsf{eqType}}
+\newcommand{\Hash}{\mathsf{Hash}}
+\newcommand{\Proof}{\mathsf{Proof}}
+\newcommand{\Addr}{\mathsf{Addr}}
+\newcommand{\ByzAddr}{\mathsf{ByzAddr}}
+\newcommand{\NodeAddr}{\mathsf{NodeAddr}}
+\newcommand{\HAddr}{\mathsf{HonestAddr}}
+\newcommand{\Value}{\mathsf{Value}}
+\newcommand{\Ghost}{\mathsf{GhostState}}
+\newcommand{\SomeV}{\mathsf{Some}}
+\newcommand{\optValue}{\mathsf{option \: Value}}
+\newcommand{\valuebft}{\mathsf{value\_bft}}
+\newcommand{\validate}{\mathsf{validate}}
+\newcommand{\N}{\mathsf{N}}
+\newcommand{\tN}{\mathsf{t}}
+\newcommand{\prooffunc}{\mathsf{proof}}
+\newcommand{\tZero}{\mathsf{t_0}}
+
+%local state
+\newcommand{\cert}{\mathit{cert}}
+\newcommand{\certs}{\mathit{certs}}
+\newcommand{\conf}{\mathit{conf}}
+\newcommand{\this}{\mathit{this}}
+\newcommand{\from}{\mathit{from}}
+\newcommand{\nsigs}{\mathit{nsigs}}
+\newcommand{\val}{\mathit{v}}
+\newcommand{\sig}{\mathit{sig}}
+
+% Axioms
+\newcommand{\bftagreement}{\mathit{bft\_agreement}}
+\newcommand{\bfttermination}{\mathit{bft\_termination}}
+\newcommand{\twocorrectnodes}{\mathit{two\_correct\_nodes}}
+\newcommand{\certvalidation}{\mathit{validated\_certificate}}
+\newcommand{\hashz}{\mathit{GB\!\_hash}}
+\newcommand{\txz}{\mathit{GB\!\_txs}}
+\newcommand{\hashinj}{\mathit{hash\_inj}}
+\newcommand{\vafnoc}{\mathit{VAF\!\_nocycle}}
+\newcommand{\fcrsubch}{\mathit{FCR\_subch}}
+\newcommand{\fcrext}{\mathit{FCR\_ext}}
+\newcommand{\fcrrel}{\mathit{FCR\_rel}}
+\newcommand{\fcrtrans}{\mathit{FCR\_trans}}
+\newcommand{\fcrnrefl}{\mathit{FCR\_nrefl}}
+\newcommand{\txvalidnil}{\mathit{txValid\_nil}}
+\newcommand{\subc}{\prec}
+\newcommand{\subceq}{\preccurlyeq}
+\newcommand{\concat}{+\!\!+\xspace{}~}
+\newcommand{\btExtend}[2]{{#1} \triangleleft {#2}}
+% \newcommand{\concat}{\mathrel{{+}{+}}}
+\newcommand{\cons}{\mathrel{{:}{:}}}
+\newcommand{\btExtendMany}[2]{{#1} \triangleleft\!\!\triangleleft~{#2}}
+\newcommand{\btChain}[1]{\lceil{#1}\rceil}
+\newcommand{\block}{\mathit{block}}
+\newcommand{\chain}{\mathit{chain}}
+\newcommand{\valid}[1]{\mathit{valid}({#1})}
+\newcommand{\ite}[3]{\mathbf{if}~{#1}~\mathbf{then}~{#2}~\mathbf{else}~{#3}}
+\newcommand{\gbf}{\text{\emph{gb-founded}}}
+\newcommand{\txv}{\text{\emph{tx-valid}}}
+\newcommand{\prebt}{\sqsubseteq}
+\newcommand{\good}[1]{\mathit{good}({#1})}
+\newcommand{\glob}[1]{\widehat{#1}}
+% Protocol state-space
+\newcommand{\Msg}{\mathsf{Msg}}
+\newcommand{\Packet}{\mathsf{Packet}}
+\newcommand{\Cert}{\mathsf{Certificate}}
+\newcommand{\Sig}{\mathsf{Signature}}
+\newcommand{\Key}{\mathsf{Key}}
+\newcommand{\sign}{\mathsf{sign}}
+\newcommand{\seckey}{\mathsf{secret\_key}}
+\newcommand{\Psent}{P_{\mathit{sent}}}
+\newcommand{\Prcv}{P_{\mathit{rcv}}}
+\newcommand{\Bool}{\mathsf{Bool}}
+\newcommand{\ps}{\mathit{ps}}
+\newcommand{\submitmsg}{\mathsf{SubmitMsg}}
+\newcommand{\confirmmsg}{\mathsf{ConfirmMsg}}
+\newcommand{\Instr}{\mathsf{Instr}}
+\newcommand{\MBody}{\mathsf{MsgBody}}
+\newcommand{\mb}{\mathit{mb}}
+\newcommand{\TxI}{\mathsf{DoTx}}
+\newcommand{\MintI}{\mathsf{DoMint}}
+\newcommand{\NullMsg}{\mathsf{NullMsg}}
+\newcommand{\AddrMsg}{\mathsf{AddrMsg}}
+\newcommand{\ConnectMsg}{\mathsf{ConnectMsg}}
+\newcommand{\BlockMsg}{\mathsf{BlockMsg}}
+\newcommand{\TxMsg}{\mathsf{TxMsg}}
+\newcommand{\InvMsg}{\mathsf{InvMsg}}
+\newcommand{\GetDataMsg}{\mathsf{GetDataMsg}}
+\newcommand{\peers}{\mathit{as}}
+\newcommand{\lstate}{\delta}
+\newcommand{\Lstate}{\mathsf{LocState}}
+\newcommand{\gstate}{\Delta}
+\newcommand{\Gstate}{\mathsf{GlobState}}
+\newcommand{\conf}{\sigma}
+\newcommand{\Conf}{\mathsf{Conf}}
+\newcommand{\PSoup}{\mathsf{PacketSoup}}
+\newcommand{\Selector}{\mathsf{Selector}}
+\newcommand{\SelInt}{\mathsf{SelInt}}
+\newcommand{\SelRcv}{\mathsf{SelRcv}}
+\newcommand{\SelIdl}{\mathsf{SelIdl}}
+\newcommand{\stepr}[1]{\xrightarrow[~~~]{~#1~}\!\!_{\scriptsize{\rho}}~}
+\newcommand{\stepi}[1]{\xrightarrow[~~~]{~#1~}\!\!_{\scriptsize{\iota}}~}
+\newcommand{\stepn}[1]{\xRightarrow[~~~]{~#1~}}
+\newcommand{\tto}{\mathsf{to}}
+\newcommand{\packages}{\mathit{ps}}
+\newcommand{\rulename}[1]{\textsc{#1}}
+\newcommand{\pow}[1]{\mathcal{P}({#1})}
+\newcommand{\msg}{\mathsf{msg}}
+\newcommand{\dest}{\mathsf{dest}}
+\newcommand{\src}{\mathsf{src}}
+\newcommand{\received}{\mathsf{received}}
+\newcommand{\reachable}[2]{{#1} \rightsquigarrow {#2}}
+\newcommand{\blocksFor}[2]{\mathit{blocksFor}({#1},{#2})}
+\newcommand{\ledger}[2]{\mathit{ledger}({#1}, {#2})}
+\newcommand{\peerz}[2]{\mathit{peers}({#1}, {#2})}
+\newcommand{\forest}[2]{\mathit{forest}({#1}, {#2})}
